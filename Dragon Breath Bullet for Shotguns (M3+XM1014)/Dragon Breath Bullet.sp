@@ -7,7 +7,7 @@
 // Global Definitions
 #define PLUGIN_VERSION "1.0.0"
 
-#define EXPLODE_SOUND   "Weapons/Plugins/Dragon Breath/a-sudden-burst-of-fire.wav"
+#define EXPLODE_SOUND   "plugins/weapons_SFX/Dragon Breath Bullet/a-sudden-burst-of-fire.wav"
 
 new Handle:cvarEnable;
 new Handle:cvarGuns;
