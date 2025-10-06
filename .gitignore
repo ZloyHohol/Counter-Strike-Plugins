@@ -6,6 +6,9 @@ cstrike/
 node_modules/
 .vscode/
 *.zip
+
+# Ignore VS Code workspace file
+Counter-Strike-Plugins.code-workspace
 *.txt
 /In Development/
 CSS-Debugging.md
