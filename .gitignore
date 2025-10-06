@@ -1,2 +1,11 @@
+# Ignore compiled SourceMod plugins and local build artifacts
+*.smx
+*.txt
+*.log
+cstrike/
+node_modules/
+.vscode/
+*.zip
 *.txt
 /In Development/
+CSS-Debugging.md
