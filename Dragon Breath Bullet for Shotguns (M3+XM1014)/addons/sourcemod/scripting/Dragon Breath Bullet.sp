@@ -22,10 +22,10 @@ int BlockTime4[MAXPLAYERS+1] = {0};
 public Plugin:myinfo =
 {
     name = "Dragon Breath Bullet",
-    author = "bl4nk,cjsrk",
-    description = "Specified guns shoot Dragon Breath Bullet",
+    author = "bl4nk,cjsrk, ZloyHohol",
+    description = "Specified guns shoot Dragon Breath Bullet + добавлен M3!",
     version = PLUGIN_VERSION,
-    url = "http://forums.alliedmods.net"
+    url = "http://forums.alliedmods.net  , https://github.com/ZloyHohol/Counter-Strike-Plugins"
 }
 
 
@@ -49,6 +49,8 @@ public OnMapStart(){
     PrecacheSound("player/damage1.wav");
     PrecacheSound("player/damage2.wav");
     PrecacheSound("player/damage3.wav");
+    AddFileToDownloadsTable("sound/plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav");
+
 }
 
 
