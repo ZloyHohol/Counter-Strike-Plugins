@@ -328,31 +328,19 @@ public void Menu_Group(Menu menu, MenuAction action, int client, int param2)
             return;
         }
 
-        g_hKVModels.Rewind(); // Start from the beginning
-        if (!g_hKVModels.JumpToKey(group)) {
-            return; // Group not found
-        }
+        g_hKVModels.JumpToKey(group);
 
-        // Determine team section
-        int team = GetClientTeam(client);
-        char teamKey[8];
-        if (team == CS_TEAM_T) {
-            strcopy(teamKey, sizeof(teamKey), "Team_T");
-        } else if (team == CS_TEAM_CT) {
-            strcopy(teamKey, sizeof(teamKey), "Team_CT");
+        if (GetClientTeam(client) == CS_TEAM_T) {
+            g_hKVModels.JumpToKey("Team_T");
+        } else if (GetClientTeam(client) == CS_TEAM_CT) {
+            g_hKVModels.JumpToKey("Team_CT");
         } else {
-            return; // Spectators can't choose
-        }
-
-        if (!g_hKVModels.JumpToKey(teamKey)) {
-            g_hKVModels.GoBack(); // Back to group level
-            PrintToChat(client, "[SM] В группе '%s' нет моделей для вашей команды.", group);
+            g_hKVModels.Rewind();
             return;
         }
 
         if (!g_hKVModels.GotoFirstSubKey()) {
-            g_hKVModels.GoBack(); // Back to team level
-            g_hKVModels.GoBack(); // Back to group level
+            g_hKVModels.Rewind();
             PrintToChat(client, "[SM] В группе '%s' нет доступных моделей.", group);
             return;
         }
@@ -363,16 +351,14 @@ public void Menu_Group(Menu menu, MenuAction action, int client, int param2)
 
         do {
             g_hKVModels.GetSectionName(entryName, sizeof(entryName));
-            g_hKVModels.GetString("path", path, sizeof(path));
+            g_hKVModels.GetString("path", path, sizeof(path), "");
 
-            if (path[0] != '\0' && FileExists(path)) {
+            if (path[0] != '\0' && FileExists(path, true)) { // Corrected: added true for use_engine_path
                 sub.AddItem(path, entryName);
             }
         } while (g_hKVModels.GotoNextKey());
 
         sub.Display(client, g_cvarCloseMenuTimer.IntValue);
-
-        // Go back to root
         g_hKVModels.Rewind();
     }
     else if (action == MenuAction_End) {
