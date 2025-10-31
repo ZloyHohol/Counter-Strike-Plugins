@@ -188,7 +188,7 @@ void ValidateAndPrecacheModelEntry()
     char path[PLATFORM_MAX_PATH];
     g_hKVModels.GetString("path", path, sizeof(path));
 
-    if (path[0] == '\0' || !FileExists(path)) {
+    if (path[0] == '\0' || !FileExists(path, true)) { // FIXED: Added 'true' for engine path
         return;
     }
 
@@ -205,22 +205,18 @@ void AddModelAndDependenciesToDownloads(const char[] modelPath)
     ReplaceString(base, sizeof(base), ".mdl", "");
 
     char dep[PLATFORM_MAX_PATH];
-    Format(dep, sizeof(dep), "%s.vvd", base);      if (FileExists(dep)) AddFileToDownloadsTable(dep);
-    Format(dep, sizeof(dep), "%s.dx90.vtx", base); if (FileExists(dep)) AddFileToDownloadsTable(dep);
-    Format(dep, sizeof(dep), "%s.phy", base);      if (FileExists(dep)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.vvd", base);      if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.dx80.vtx", base);  if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.dx90.vtx", base);  if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.sw.vtx", base);    if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.phy", base);       if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
 
-    if (g_hKVModels.JumpToKey("materials", false)) {
-        if (g_hKVModels.GotoFirstSubKey(false)) {
-            char mat[PLATFORM_MAX_PATH];
-            do {
-                g_hKVModels.GetString(NULL_STRING, mat, sizeof(mat));
-                if (mat[0] != '\0' && FileExists(mat)) {
-                    AddFileToDownloadsTable(mat);
-                }
-            } while (g_hKVModels.GotoNextKey(false));
-            g_hKVModels.GoBack();
-        }
-        g_hKVModels.GoBack();
+    // Naive materials mapping (models/... -> materials/...)
+    char mat[PLATFORM_MAX_PATH];
+    strcopy(mat, sizeof(mat), base);
+    if (ReplaceString(mat, sizeof(mat), "models/", "materials/") > 0)
+    {
+        AddFileToDownloadsTable(mat);
     }
 }
 
@@ -258,7 +254,7 @@ int LoadSimpleModelList(const char[] iniPath, char[][] outArray, int outArraySiz
         TrimString(line);
         if (line[0] == '\0' || (line[0] == '/' && line[1] == '/')) continue;
 
-        if (!FileExists(line)) {
+        if (!FileExists(line, true)) {
             continue;
         }
 
@@ -341,24 +337,32 @@ public void Menu_Group(Menu menu, MenuAction action, int client, int param2)
 
         if (!g_hKVModels.GotoFirstSubKey()) {
             g_hKVModels.Rewind();
-            PrintToChat(client, "[SM] В группе '%s' нет доступных моделей.", group);
+            PrintToChat(client, "\x04[SM] \x0cНе удалось прочесть модели внутри группы \x07%s\x0c.", group);
             return;
         }
 
         Menu sub = new Menu(Menu_Model);
         sub.SetTitle(group);
         char entryName[64], path[PLATFORM_MAX_PATH];
+        int modelCount = 0;
 
         do {
             g_hKVModels.GetSectionName(entryName, sizeof(entryName));
             g_hKVModels.GetString("path", path, sizeof(path), "");
 
-            if (path[0] != '\0' && FileExists(path, true)) { // Corrected: added true for use_engine_path
+            if (path[0] != '\0' && FileExists(path, true)) {
                 sub.AddItem(path, entryName);
+                modelCount++;
             }
         } while (g_hKVModels.GotoNextKey());
 
-        sub.Display(client, g_cvarCloseMenuTimer.IntValue);
+        if (modelCount > 0) {
+            PrintToChat(client, "\x04[SM] \x03Доступно моделей: \x07%d", modelCount);
+            sub.Display(client, g_cvarCloseMenuTimer.IntValue);
+        } else {
+            PrintToChat(client, "\x04[SM] \x0cВ группе \x07%s\x0c нет доступных моделей.", group);
+        }
+        
         g_hKVModels.Rewind();
     }
     else if (action == MenuAction_End) {
@@ -374,13 +378,14 @@ public void Menu_Model(Menu menu, MenuAction action, int client, int param2)
 
         CacheClientAuthId(client);
 
-        if (!FileExists(path)) {
+        if (!FileExists(path, true)) {
+            PrintToChat(client, "[SM] Ошибка: файл модели не найден: %s", path);
             return;
         }
 
         if (!IsModelPrecached(path)) {
             PrecacheModel(path, true);
-            // Don't call AddModelAndDependenciesToDownloads here, it's too late
+            AddModelAndDependenciesToDownloads(path);
         }
 
         SetEntityModel(client, path);
@@ -449,7 +454,9 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
     int client = GetClientOfUserId(event.GetInt("userid"));
     if (!IsValidClient(client)) return;
 
-    CaptureOriginalModelIfUnset(client);
+    // Capture original model on every spawn, like in v5.5
+    GetEntPropString(client, Prop_Data, "m_ModelName", g_originalModel[client], sizeof(g_originalModel[]));
+
     ApplySavedChoiceIfAny(client);
 
     if (IsFakeClient(client)) {
@@ -469,17 +476,6 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
                 ForcePlayerSkinNow(client);
             }
         }
-    }
-}
-
-void CaptureOriginalModelIfUnset(int client)
-{
-    if (g_originalModel[client][0] != '\0') return;
-
-    char cur[PLATFORM_MAX_PATH];
-    GetEntPropString(client, Prop_Data, "m_ModelName", cur, sizeof(cur));
-    if (StrContains(cur, "models/player", false) != -1) {
-        strcopy(g_originalModel[client], sizeof(g_originalModel[]), cur);
     }
 }
 
@@ -530,7 +526,7 @@ void ApplySavedChoiceIfAny(int client)
     
     g_hKVPlayerChoice.GoBack();
 
-    if (path[0] == '\0' || !FileExists(path)) return;
+    if (path[0] == '\0' || !FileExists(path, true)) return;
 
     // Final check: does player still have access to this model's group?
     char groupName[64];
