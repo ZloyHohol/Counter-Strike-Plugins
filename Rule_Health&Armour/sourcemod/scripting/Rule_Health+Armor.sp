@@ -278,7 +278,7 @@ KeyValues GetClientGroupSettings(int client, bool isBot)
     g_kvHumans.Rewind();
     
     KeyValues kvBestGroup = null;
-    int bestMatchCount = -1;
+    int bestMatchValue = -1; // Use flag value for matching, not string length
 
     if (g_kvHumans.GotoFirstSubKey(false))
     {
@@ -295,11 +295,10 @@ KeyValues GetClientGroupSettings(int client, bool isBot)
             // Check if the player has all the required flags for this group
             if ((playerFlags & flagsMask) == flagsMask)
             {
-                int currentMatchCount = strlen(sFlags);
-                // If this group requires more flags than the best match so far, it's a better match
-                if (currentMatchCount > bestMatchCount)
+                // If this group's flag value is higher than the best match so far, it's a better match
+                if (flagsMask > bestMatchValue)
                 {
-                    bestMatchCount = currentMatchCount;
+                    bestMatchValue = flagsMask;
                     if (kvBestGroup != null) 
                     {
                         delete kvBestGroup;
