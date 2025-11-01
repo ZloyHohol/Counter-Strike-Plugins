@@ -1,0 +1,11 @@
+VertexLitGeneric
+{
+	"$basetexture"	"models\player\vad36arab\arab_head_skin_b_col"
+        "$bumpmap" "models\player\vad36arab\arab_head_skin_b_nml"
+
+
+	"$normalmapalphaenvmapmask" "1"
+	"$envmapcontrast" 0.3
+	"$envmapsaturation" 0.7
+	"$envmaptint" "[ 0.36 0.36 0.36 ]"
+}

@@ -1,0 +1,4 @@
+
+$DeclareSequence "reference"
+$DeclareSequence "proportions"
+$DeclareSequence "ragdoll"

@@ -1,0 +1,13 @@
+"VertexlitGeneric"
+{
+	"$basetexture" "models\player\vad36_bf4\ru_assault/ru_assault_lowerbody_d"
+	"$bumpmap" "models\player\vad36_bf4\ru_assault/ru_assault_lowerbody_n"
+	"$phong" "1"
+	"$phongexponent" "5"
+
+	"$phongboost" ".2"	
+	"$phongfresnelranges"	"[.1 0.2 1]"
+	"$rimlight" "1"										
+	"$rimlightexponent" "88"							
+	"$rimlightboost" "0.2"
+}

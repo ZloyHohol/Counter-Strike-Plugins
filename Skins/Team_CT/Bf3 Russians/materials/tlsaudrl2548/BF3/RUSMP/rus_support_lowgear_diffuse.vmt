@@ -1,0 +1,18 @@
+"VertexLitGeneric"
+{
+	"$baseTexture" "tlsaudrl2548\BF3\RUSMP/rus_support_lowbody"
+	"$bumpmap" "tlsaudrl2548\BF3\RUSMP/rus_support_lowbody_normal"
+	"$phong" "1"
+	"$phongexponenttexture" "tlsaudrl2548\BF3\RUSMP/rus_support_lowbody_expon"
+	"$phongexponent" "10"
+	"$phongboost"	"1.5"
+	"$phongfresnelranges"	"[0.1 0.3 3]"
+/*
+	"$detail" "tlsaudrl2548\BF3\RUSMP\rus_pattern"
+	"$detailscale" 30.283
+	"$detailblendfactor" .65
+	"$detailblendmode" 0
+*/
+	$nocull 1
+
+}

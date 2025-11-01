@@ -1,0 +1,16 @@
+"VertexLitGeneric"
+{
+	"$basetexture" "models/survivors/Vella_Christmas/pc_female_frozen_jpn_foot_trans"
+	"$bumpmap" "models/survivors/Vella_Christmas/pc_female_frozen_jpn_foot_trans_normal"
+	"$alphatest" "1"
+	"$allowalphatocoverage" "1"
+	"$normalmapalphaenvmapmask" "1"
+	"$nodecal" "1"
+	"$nocull" "1"
+	"$halflambert" "1"
+
+	"$phong" "1"
+	"$phongboost" "3"
+	"$phongexponent" "10"
+	"$phongfresnelranges" "[0.1 1 0.1]"
+}

@@ -1,0 +1,5 @@
+"VertexLitGeneric"
+{
+	"$baseTexture" "models\player\perfect\02_1\Eyelash"
+    "$lightwarptexture" "models\player\perfect\02_1\toon_c"
+}

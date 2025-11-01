@@ -1,0 +1,8 @@
+"VertexLitGeneric"
+{
+$baseTexture "models\player\vad36_separatist\tm_separatist_lowerbody_varianta"
+$bumpmap "models\player\vad36_separatist\tm_separatist_lowerbody_varianta_normal"
+$phongexponenttexture "models\player\vad36_separatist\tm_separatist_lowerbody_varianta_exponent"
+$rimmask 1
+}
+

@@ -1,0 +1,8 @@
+"VertexLitGeneric"
+{	
+	"$baseTexture" "models\akuld\funnyrat\ClownHair"
+	"$bumpmap" "models\akuld\funnyrat\ClownHairNRM"
+
+	"$halflambert" "1"
+
+}

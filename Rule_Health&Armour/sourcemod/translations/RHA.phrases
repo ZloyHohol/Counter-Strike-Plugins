@@ -1,0 +1,9 @@
+"Phrases"
+{
+    "RHA_GroupMessage"
+    {
+        "en"	"{green}You are in group {lightgreen}%s{green}. Health: {darkgreen}%s{green}, Armor: {brown}%s{green}."
+        "ru"	"{green}Вы в группе {lightgreen}%s{green}. Здоровье: {darkgreen}%s{green}, Броня: {brown}%s{green}."
+        "uk"	"{green}Ви в групі {lightgreen}%s{green}. Здоров'я: {darkgreen}%s{green}, Броня: {brown}%s{green}."
+    }
+}

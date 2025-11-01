@@ -1,0 +1,14 @@
+"VertexlitGeneric"
+{
+	"$basetexture" "models\survivors\Vella_Christmas\eyelash"
+	"$nodecal" 1
+	"$nocull" 1
+	"$alphatest" 1
+	"$allowalphatocoverage" 1
+   	"$halflambert" "1"
+	"$phong" "1"
+	"$phongboost" ".05"
+	"$phongexponent" "15"
+	"$phongfresnelranges" "[.1 .1 .1]"
+    "$phongtint" "[120 70 40]"
+}

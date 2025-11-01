@@ -1,0 +1,6 @@
+"eyes"
+{
+	"$baseTexture" "models\player\hhp227\bunnygirl_v2/eyeball_l"
+	"$iris" "models/player/hhp227\bunnygirl_v2/pupil"
+	"$halflambert" 1
+}

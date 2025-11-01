@@ -1,0 +1,9 @@
+"VertexLitGeneric"
+{	
+	"$baseTexture" "models\akuld\funnyrat\LibertyCrown"
+	"$bumpmap" "models\akuld\funnyrat\LibertyCrownNRM"
+	"$nocull" "1"
+
+	"$halflambert" "1"
+
+}

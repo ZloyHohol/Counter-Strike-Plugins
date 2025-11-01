@@ -1,0 +1,9 @@
+vertexlitgeneric
+{
+$baseTexture "models/player/vad36go_sas/ct_sas_glass"
+
+$envmap env_cubemap
+$envmapmask "models/player/vad36go_sas/ct_sas_glass_spec"
+
+$translucent 1
+}

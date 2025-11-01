@@ -1,0 +1,7 @@
+"VertexLitGeneric"
+{
+	"$baseTexture" "models\player\vad36russia/russianwoodland_alpha_a_col"
+	"$bumpmap" "models\player\vad36russia/russianwoodland_alpha_a_nml"
+$translucent 1
+
+}

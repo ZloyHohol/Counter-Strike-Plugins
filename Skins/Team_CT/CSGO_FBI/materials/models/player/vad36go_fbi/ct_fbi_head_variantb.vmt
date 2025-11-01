@@ -1,0 +1,8 @@
+"VertexlitGeneric"
+{
+$baseTexture "models\player\vad36go_fbi\ct_fbi_head_variantb"
+$bumpmap "models\player\vad36go_fbi\ct_fbi_head_normal_variantb"
+$phongexponenttexture "models\player\vad36go_fbi\ct_fbi_head_exponent_variantb"
+$rimmask 1
+$nodecal 1
+}

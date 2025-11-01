@@ -1,0 +1,8 @@
+"VertexLitGeneric"
+{
+$baseTexture "models\player\vad36_professional\tm_professional_upperbody"
+$bumpmap "models\player\vad36_professional\tm_professional_upperbody_normal"
+$phongexponenttexture "models\player\vad36_professional\tm_professional_upperbody_exponent"
+$rimmask 1
+}
+

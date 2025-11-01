@@ -1,0 +1,19 @@
+"VertexLitGeneric"
+{
+	"$baseTexture" "tlsaudrl2548\BF3\RUSMP/rus_sniper_upbody"
+	"$bumpmap" "tlsaudrl2548\BF3\RUSMP/rus_sniper_upbody_normal"
+	"$phong" "1"
+	"$phongexponenttexture" "tlsaudrl2548\BF3\RUSMP/rus_sniper_upbody_expon"
+	"$phongexponent" "2"
+	"$phongboost"	".02"
+	"$phongfresnelranges"	"[0.25 0.5 1]"
+
+/*
+	"$detail" "tlsaudrl2548\BF3\RUSMP\rus_pattern"
+	"$detailscale" 30.283
+	"$detailblendfactor" .65
+	"$detailblendmode" 0
+*/
+	$nocull 1
+
+}

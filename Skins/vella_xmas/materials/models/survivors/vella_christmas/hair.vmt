@@ -1,0 +1,15 @@
+"VertexLitGeneric"
+{
+	"$basetexture" "models/survivors/Vella_Christmas/hair"
+	"$bumpmap" "models/survivors/Vella_Christmas/hair_n"
+	"$normalmapalphaenvmapmask" "1"
+	"$nodecal" "1"
+	"$alphatest" "1"
+	"$allowalphatocoverage" "1"
+	"$halflambert" "1"
+	"$phong" "1"
+	"$phongboost" "0.05"
+	"$phongexponent" "15"
+	"$phongfresnelranges" "[0.1 0.1 0.1]"
+	"$phongtint" "[55 37 19]"
+}

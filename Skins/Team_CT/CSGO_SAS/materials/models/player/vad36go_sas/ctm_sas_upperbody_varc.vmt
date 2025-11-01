@@ -1,0 +1,7 @@
+vertexlitgeneric
+{
+$baseTexture "models\player\vad36go_sas\ctm_sas_upperbody_varC"
+$bumpmap "models\player\vad36go_sas\ctm_sas_upperbody_normal"
+$phongexponenttexture "models\player\vad36go_sas\ctm_sas_upperbody_exponent"
+$rimmask 1
+}

@@ -1,12 +1,18 @@
-// =============================================================================
-// SM Skinchooser (CSS) — Clean, safe, no arms, with Team_T / Team_CT
-// - Clean group menu (no Team_* in the top level)
-// - Team-aware model listing (Team_T for T, Team_CT for CT)
-// - Reset to default model
-// - Safe KV reading with validation (one "path" per model, file existence)
-// - Auto-download dependencies for models (mdl, vtx, vvd, phy, materials)
-// - Remember player choice (global by default, optional mapbased toggle)
-// - Optional force skins for Admins & Bots via configs
+/// =============================================================================
+// SM Skinchooser (CSS) v5.5.1 — Patched by Gemini
+//
+// Этот плагин позволяет игрокам выбирать себе модели (скины) из заранее
+// определенного списка. Он поддерживает разделение моделей по командам,
+// ограничение доступа к группам моделей по флагам администратора,
+// а также автоматическую загрузку моделей и их материалов на клиенты.
+//
+// Ключевые исправления в этой версии:
+// - Исправлена фильтрация меню по флагам.
+// - Восстановлена навигация по меню и показ списка моделей.
+// - Исправлена критическая ошибка, приводившая к "ERROR" моделям.
+// - Восстановлена автоматическая загрузка материалов.
+// - Исправлена логика сброса модели на стандартную.
+// - Добавлены информативные сообщения в чат для игроков.
 // =============================================================================
 
 #pragma semicolon 1
@@ -15,12 +21,14 @@
 #include <sourcemod>
 #include <sdktools>
 #include <cstrike>
+#include <multicolors> // Добавлено для цветных сообщений
+#include <admin>       // Добавлено для работы с флагами администраторов
 
-// -----------------------------------------------------------------------------
-// Version/CVARs
-// -----------------------------------------------------------------------------
-#define PLUGIN_VERSION "6.0-clean-css"
+#define PLUGIN_VERSION "5.5.1"
 
+// --- Глобальные переменные ---
+
+// Переменные для хранения значений консольных команд (CVars)
 ConVar g_cvarEnabled;
 ConVar g_cvarMapbased;
 ConVar g_cvarAdminOnly;
@@ -28,644 +36,949 @@ ConVar g_cvarCloseMenuTimer;
 ConVar g_cvarAutodisplay;
 ConVar g_cvarDisplayTimer;
 ConVar g_cvarMenuStartTime;
-
 ConVar g_cvarForcePlayerSkin;
 ConVar g_cvarForcePlayerSkinTimer;
 ConVar g_cvarForcePlayerSkinTimerEnabled;
-
 ConVar g_cvarSkinAdmin;
 ConVar g_cvarSkinAdminTimer;
 ConVar g_cvarSkinAdminTimerEnabled;
-
 ConVar g_cvarSkinBots;
+ConVar g_cvarSaveChoice; // Новый CVAR для контроля сохранения
+ConVar g_cvarLoadChoice; // Новый CVAR для контроля загрузки
 
-// -----------------------------------------------------------------------------
-// Handles / KV
-// -----------------------------------------------------------------------------
-Handle g_hKVModels = INVALID_HANDLE;           // configs/sm_skinchooser/default_skins.ini (or map-based)
-Handle g_hKVPlayerChoice = INVALID_HANDLE;     // data/skinchooser_playermodels.ini OR map-based
+// "Handle" для работы с файлами конфигурации KeyValues
+KeyValues g_hKVModels;        // Хранит структуру default_skins.ini
+KeyValues g_hKVPlayerChoice;  // Хранит выбор моделей игроками
 
-// -----------------------------------------------------------------------------
-// State
-// -----------------------------------------------------------------------------
-char g_authId[MAXPLAYERS+1][64];
-char g_originalModel[MAXPLAYERS+1][PLATFORM_MAX_PATH];
+// Массивы для хранения информации об игроках
+char g_authId[MAXPLAYERS+1][64];                // SteamID игроков
+char g_originalModel[MAXPLAYERS+1][PLATFORM_MAX_PATH]; // Путь к стандартной модели игрока
 
-char g_ForcePlayerTeamT[128][PLATFORM_MAX_PATH]; // optional force player models (T)
+// Массив со стандартными моделями для T и CT
+
+
+
+// Массивы для хранения путей к моделям для принудительной установки
+char g_ForcePlayerTeamT[128][PLATFORM_MAX_PATH];
 char g_ForcePlayerTeamCT[128][PLATFORM_MAX_PATH];
 int  g_ForcePlayerCountT = 0;
 int  g_ForcePlayerCountCT = 0;
 
-char g_ForceAdminTeamT[128][PLATFORM_MAX_PATH];  // optional force admin models (T)
+char g_ForceAdminTeamT[128][PLATFORM_MAX_PATH];
 char g_ForceAdminTeamCT[128][PLATFORM_MAX_PATH];
 int  g_ForceAdminCountT = 0;
 int  g_ForceAdminCountCT = 0;
 
-char g_ForceBotsTeamT[128][PLATFORM_MAX_PATH];   // optional force bots (T)
+char g_ForceBotsTeamT[128][PLATFORM_MAX_PATH];
 char g_ForceBotsTeamCT[128][PLATFORM_MAX_PATH];
 int  g_ForceBotsCountT = 0;
 int  g_ForceBotsCountCT = 0;
 
-// -----------------------------------------------------------------------------
-// Plugin info
-// -----------------------------------------------------------------------------
+
+
+// --- Информация о плагине ---
+
 public Plugin myinfo = {
-    name        = "SM Skinchooser (CSS - clean)",
-    author      = "Andi67, refactor by Gemini",
-    description = "Model menu for Counter-Strike: Source (no arms, safe INI)",
+    name        = "SM Skinchooser (CSS - v5.5.1)",
+    author      = "Andi67, Gemini",
+    description = "Model menu for Counter-Strike: Source with flag restrictions",
     version     = PLUGIN_VERSION,
-    url         = "https://github.com"
+    url         = "https://github.com/ZloyHohol/Counter-Strike-Plugins"
 };
 
-// -----------------------------------------------------------------------------
-// Forwards
-// -----------------------------------------------------------------------------
+// --- Основные функции плагина ---
+
 public void OnPluginStart()
 {
-    CreateConVar("sm_skinchooser_version", PLUGIN_VERSION, "SM Skinchooser version", FCVAR_NOTIFY);
+    // Регистрация консольных команд (CVars) для управления плагином
+    CreateConVar("sm_skinchooser_version", PLUGIN_VERSION, "SM Skinchooser version", FCVAR_NOTIFY | FCVAR_SPONLY);
 
-    g_cvarEnabled           = CreateConVar("sm_skinchooser_enabled", "1", "Enable plugin", FCVAR_NONE, true, 0.0, true, 1.0);
-    g_cvarMapbased          = CreateConVar("sm_skinchooser_mapbased", "0", "Use map-based player choice files (0=global,1=per-map)", FCVAR_NONE, true, 0.0, true, 1.0);
-    g_cvarAdminOnly         = CreateConVar("sm_skinchooser_adminonly", "0", "Menu only for admins (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
-    g_cvarCloseMenuTimer    = CreateConVar("sm_skinchooser_closemenutimer", "30", "Menu auto-close seconds", FCVAR_NONE, true, 5.0, true, 600.0);
+    g_cvarEnabled = CreateConVar("sm_skinchooser_enabled", "1", "Включить/выключить плагин");
+    g_cvarMapbased = CreateConVar("sm_skinchooser_mapbased", "0", "Использовать файлы выбора моделей для каждой карты отдельно (1) или один общий (0)");
+    g_cvarAdminOnly = CreateConVar("sm_skinchooser_adminonly", "0", "Сделать меню доступным только для администраторов");
+    g_cvarCloseMenuTimer = CreateConVar("sm_skinchooser_closemenutimer", "30", "Через сколько секунд автоматически закрывать меню");
+    g_cvarAutodisplay = CreateConVar("sm_skinchooser_autodisplay", "1", "Автоматически показывать меню при входе в команду");
+    g_cvarDisplayTimer = CreateConVar("sm_skinchooser_displaytimer", "0", "Использовать задержку перед показом меню");
+    g_cvarMenuStartTime = CreateConVar("sm_skinchooser_menustarttime", "5.0", "Задержка в секундах перед автоматическим показом меню");
 
-    g_cvarAutodisplay       = CreateConVar("sm_skinchooser_autodisplay", "1", "Auto-show menu on team join (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
-    g_cvarDisplayTimer      = CreateConVar("sm_skinchooser_displaytimer", "0", "Delay auto-show by sm_skinchooser_menustarttime (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
-    g_cvarMenuStartTime     = CreateConVar("sm_skinchooser_menustarttime", "5.0", "Seconds before auto-show when enabled", FCVAR_NONE, true, 0.0, true, 60.0);
+    g_cvarForcePlayerSkin = CreateConVar("sm_skinchooser_forceplayerskin", "0", "Принудительно устанавливать скины обычным игрокам");
+    g_cvarForcePlayerSkinTimer = CreateConVar("sm_skinchooser_forceplayerskintimer", "0.3", "Задержка перед принудительной установкой скина");
+    g_cvarForcePlayerSkinTimerEnabled = CreateConVar("sm_skinchooser_forceplayerskintimer_enabled", "0", "Использовать таймер для принудительной установки");
 
-    // Optional force systems
-    g_cvarForcePlayerSkin           = CreateConVar("sm_skinchooser_forceplayerskin", "0", "Force player skins (non-admin) (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
-    g_cvarForcePlayerSkinTimer      = CreateConVar("sm_skinchooser_forceplayerskintimer", "0.3", "Timer when force player skin applies", FCVAR_NONE, true, 0.1, true, 30.0);
-    g_cvarForcePlayerSkinTimerEnabled = CreateConVar("sm_skinchooser_forceplayerskintimer_enabled", "0", "Use timer for force player skin (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
+    g_cvarSkinAdmin = CreateConVar("sm_skinchooser_skinadmin", "0", "Принудительно устанавливать скины администраторам");
+    g_cvarSkinAdminTimer = CreateConVar("sm_skinchooser_skinadmintimer", "0.3", "Задержка перед принудительной установкой скина админу");
+    g_cvarSkinAdminTimerEnabled = CreateConVar("sm_skinchooser_skinadmintimer_enabled", "0", "Использовать таймер для админов");
 
-    g_cvarSkinAdmin                 = CreateConVar("sm_skinchooser_skinadmin", "0", "Force admin skins (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
-    g_cvarSkinAdminTimer            = CreateConVar("sm_skinchooser_skinadmintimer", "0.3", "Timer when force admin skin applies", FCVAR_NONE, true, 0.1, true, 30.0);
-    g_cvarSkinAdminTimerEnabled     = CreateConVar("sm_skinchooser_skinadmintimer_enabled", "0", "Use timer for force admin skin (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
+    g_cvarSkinBots = CreateConVar("sm_skinchooser_skinbots", "0", "Принудительно устанавливать скины ботам");
+    g_cvarSaveChoice = CreateConVar("sm_skinchooser_savechoice", "1", "Сохранять выбор игроков в файл (1 = да, 0 = нет)");
+    g_cvarLoadChoice = CreateConVar("sm_skinchooser_loadchoice", "1", "Загружать сохраненный выбор игроков (1 = да, 0 = нет)");
 
-    g_cvarSkinBots                  = CreateConVar("sm_skinchooser_skinbots", "0", "Force bot skins (0=no,1=yes)", FCVAR_NONE, true, 0.0, true, 1.0);
+    // Регистрация команды !models в чате
+    RegConsoleCmd("sm_models", Command_Model, "Открыть меню выбора моделей");
 
-    RegConsoleCmd("sm_models", Command_Model, "Open the skin chooser menu");
-
+    // Перехват игровых событий
     HookEvent("player_team",  Event_PlayerTeam, EventHookMode_Post);
     HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
+    
+    // Отслеживание изменений в CVars для перезагрузки конфигов "на лету"
+    HookConVarChange(g_cvarForcePlayerSkin, OnForceCvarChanged);
+    HookConVarChange(g_cvarSkinAdmin, OnForceCvarChanged);
+    HookConVarChange(g_cvarSkinBots, OnForceCvarChanged);
 
+    // Автоматическое выполнение конфигурационного файла плагина
     AutoExecConfig(true, "sm_skinchooser");
+}
 
+// Вызывается после загрузки всех конфигов на сервере
+public void OnConfigsExecuted()
+{
     LoadConfigAndChoices();
     LoadForceConfigs();
 }
 
+// Вызывается при изменении CVAR'ов принудительной установки скинов
+public void OnForceCvarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    LoadForceConfigs();
+}
+
+// Вызывается при старте новой карты
 public void OnMapStart()
 {
-    // Re-load config/KV on map start to catch map-based changes if any.
     LoadConfigAndChoices();
     LoadForceConfigs();
 }
 
+// Вызывается при выгрузке плагина
 public void OnPluginEnd()
 {
-    if (g_hKVModels != INVALID_HANDLE) {
-        CloseHandle(g_hKVModels);
-        g_hKVModels = INVALID_HANDLE;
-    }
-    if (g_hKVPlayerChoice != INVALID_HANDLE) {
-        CloseHandle(g_hKVPlayerChoice);
-        g_hKVPlayerChoice = INVALID_HANDLE;
-    }
+    if (g_hKVModels != null) CloseHandle(g_hKVModels);
+    if (g_hKVPlayerChoice != null) CloseHandle(g_hKVPlayerChoice);
 }
 
-// -----------------------------------------------------------------------------
-// Load configs (safe parsing, Team_T / Team_CT)
-// -----------------------------------------------------------------------------
+// --- Загрузка и обработка конфигурационных файлов ---
+
+/**
+ * Загружает основной конфигурационный файл с моделями (default_skins.ini)
+ * и файл с сохраненным выбором игроков.
+ */
 void LoadConfigAndChoices()
 {
-    // Load main config (default or map-based override). We DO NOT create new files here.
-    char mapName[PLATFORM_MAX_PATH];
+    char mapName[64];
     GetCurrentMap(mapName, sizeof(mapName));
 
+    // Определяем путь к основному конфигу. Сначала ищем конфиг для конкретной карты.
     char configPath[PLATFORM_MAX_PATH];
-
-    // Try map-based config first
     BuildPath(Path_SM, configPath, sizeof(configPath), "configs/sm_skinchooser/maps/%s.ini", mapName);
+    // Если не находим, используем стандартный default_skins.ini
     if (!FileExists(configPath)) {
-        // Fallback to default_skins.ini
         BuildPath(Path_SM, configPath, sizeof(configPath), "configs/sm_skinchooser/default_skins.ini");
     }
 
-    if (g_hKVModels != INVALID_HANDLE)
-        CloseHandle(g_hKVModels);
-
-    g_hKVModels = CreateKeyValues("Models");
-    if (!FileToKeyValues(g_hKVModels, configPath)) {
-        LogError("[SM_SKINCHOOSER] Failed to load %s. Check syntax.", configPath);
+    // Загружаем .ini файл в KeyValues
+    if (g_hKVModels != null) CloseHandle(g_hKVModels);
+    g_hKVModels = new KeyValues("Models");
+    if (!g_hKVModels.ImportFromFile(configPath)) {
+        LogError("[SM_SKINCHOOSER] Не удалось загрузить %s. Проверьте синтаксис файла.", configPath);
     }
 
-    // Load player choices (global or per-map file)
+    // Определяем путь к файлу с выбором игроков (общий или для карты)
     char choicePath[PLATFORM_MAX_PATH];
-
-    if (GetConVarInt(g_cvarMapbased) == 1) {
-        BuildPath(Path_SM, choicePath, sizeof(choicePath), "data/%s_skinchooser_playermodels.ini", mapName);
+    if (g_cvarMapbased.BoolValue) {
+        BuildPath(Path_SM, choicePath, sizeof(choicePath), "data/skinchooser/%s_playermodels.ini", mapName);
     } else {
-        BuildPath(Path_SM, choicePath, sizeof(choicePath), "data/skinchooser_playermodels.ini");
+        BuildPath(Path_SM, choicePath, sizeof(choicePath), "data/skinchooser/skinchooser_playermodels.ini");
     }
 
-    if (g_hKVPlayerChoice != INVALID_HANDLE)
-        CloseHandle(g_hKVPlayerChoice);
+    // Загружаем выборы игроков
+    if (g_hKVPlayerChoice != null) CloseHandle(g_hKVPlayerChoice);
+    g_hKVPlayerChoice = new KeyValues("Models");
+    g_hKVPlayerChoice.ImportFromFile(choicePath); // Ошибки здесь нет, если файл еще не создан
 
-    g_hKVPlayerChoice = CreateKeyValues("Models");
-    // It’s fine if file doesn’t exist yet — KV remains empty until we save.
-    FileToKeyValues(g_hKVPlayerChoice, choicePath);
-
-    // Precache all valid models and add dependencies to downloads table
+    // Запускаем прекеш всех моделей из конфига
     SafePrecacheAllModelsFromConfig();
 }
 
-// Validate and precache models safely, with per-section guard.
+/**
+ * Проходит по всему конфигурационному файлу и вызывает проверку
+ * и прекеш для каждой найденной модели.
+ */
 void SafePrecacheAllModelsFromConfig()
 {
-    if (g_hKVModels == INVALID_HANDLE)
-        return;
+    if (g_hKVModels == null) return;
 
-    // The top-level has sub-sections (e.g., "Public Models", "Admin Models")
-    if (!KvGotoFirstSubKey(g_hKVModels))
-        return;
+    g_hKVModels.Rewind(); // Начинаем с самого начала файла
+    if (!g_hKVModels.GotoFirstSubKey()) return; // Переходим к первой группе ("general models", "Administrator_Z", etc.)
 
+    // Проходим по всем группам моделей в файле
     do {
-        // Skip service sections at top; we expect group sections here,
-        // inside them will be Team_T and Team_CT.
-        char groupName[64];
-        KvGetSectionName(g_hKVModels, groupName, sizeof(groupName));
-
-        // Dive into group -> Team_T/Team_CT if present
-        KvJumpToKey(g_hKVModels, "Team_T", false);
-        if (KvGotoFirstSubKey(g_hKVModels)) {
-            do {
-                ValidateAndPrecacheModelEntry();
-            } while (KvGotoNextKey(g_hKVModels));
-            KvGoBack(g_hKVModels); // leave model list
+        // Пытаемся перейти в секцию Team_T
+        if (g_hKVModels.JumpToKey("Team_T", false)) {
+            if (g_hKVModels.GotoFirstSubKey()) { // Переходим к первой модели внутри Team_T
+                do {
+                    ValidateAndPrecacheModelEntry(); // Проверяем и кешируем модель
+                } while (g_hKVModels.GotoNextKey());
+                g_hKVModels.GoBack(); // Возвращаемся из списка моделей
+            }
+            g_hKVModels.GoBack(); // Возвращаемся из секции Team_T
         }
-        KvGoBack(g_hKVModels); // back to group
 
-        KvJumpToKey(g_hKVModels, "Team_CT", false);
-        if (KvGotoFirstSubKey(g_hKVModels)) {
-            do {
-                ValidateAndPrecacheModelEntry();
-            } while (KvGotoNextKey(g_hKVModels));
-            KvGoBack(g_hKVModels); // leave model list
+        // То же самое для Team_CT
+        if (g_hKVModels.JumpToKey("Team_CT", false)) {
+            if (g_hKVModels.GotoFirstSubKey()) {
+                do {
+                    ValidateAndPrecacheModelEntry();
+                } while (g_hKVModels.GotoNextKey());
+                g_hKVModels.GoBack();
+            }
+            g_hKVModels.GoBack();
         }
-        KvGoBack(g_hKVModels); // back to group
-    } while (KvGotoNextKey(g_hKVModels));
+    } while (g_hKVModels.GotoNextKey()); // Переходим к следующей группе
 
-    KvRewind(g_hKVModels);
+    g_hKVModels.Rewind(); // Сбрасываем "указатель" в начало файла
 }
 
-// One entry = one model section with exactly one "path"
+/**
+ * Проверяет, существует ли файл модели, и если да,
+ * запускает его прекеш и добавление в список загрузок.
+ */
 void ValidateAndPrecacheModelEntry()
 {
-    // Collect exactly one "path"
     char path[PLATFORM_MAX_PATH];
-    KvGetString(g_hKVModels, "path", path, sizeof(path), "");
+    g_hKVModels.GetString("path", path, sizeof(path));
 
-    // If empty or missing — skip
-    if (path[0] == '\0') {
-        char secName[64];
-        KvGetSectionName(g_hKVModels, secName, sizeof(secName));
-        LogError("[SM_SKINCHOOSER] Section '%s' has empty path. Skipping.", secName);
+    // Проверяем, что путь не пустой и файл существует в папках игры (cstrike, cstrike/custom, etc.)
+    // FileExists(path, true) - это ключевое исправление. `true` заставляет искать файл
+    // в "виртуальной" файловой системе движка, а не только на диске.
+    if (path[0] == '\0' || !FileExists(path, true)) {
         return;
     }
 
-    // Additional guard: if section contains multiple "path" lines (bad config),
-    // we won't iterate KV pairs to count keys — we trust single path by spec.
-    // If admins break config adding multiple "path", KV usually keeps last one.
-    // To protect server, we validate existence only.
-    if (!FileExists(path, true)) {
-        LogError("[SM_SKINCHOOSER] Model file missing '%s'. Skipping.", path);
-        return;
-    }
-
-    // Precache + add dependencies to downloads table
-    PrecacheModel(path, true);
-    AddModelAndDependenciesToDownloads(path);
+    PrecacheModel(path, true); // Добавляем модель в прекеш сервера
+    AddModelAndDependenciesToDownloads(path); // Добавляем модель и ее зависимости в список загрузок
 }
 
-// Add typical model dependencies and materials folder
+/**
+ * Добавляет модель и все ее зависимости (.vvd, .vtx, .phy, материалы)
+ * в таблицу загрузки для клиентов.
+ */
 void AddModelAndDependenciesToDownloads(const char[] modelPath)
 {
-    AddFileToDownloadsTable(modelPath);
+    AddFileToDownloadsTable(modelPath); // Добавляем сам .mdl файл
 
+    // Формируем базовое имя файла без расширения (например, "models/player/my/model")
     char base[PLATFORM_MAX_PATH];
     strcopy(base, sizeof(base), modelPath);
     ReplaceString(base, sizeof(base), ".mdl", "");
 
+    // Добавляем все возможные компоненты модели
     char dep[PLATFORM_MAX_PATH];
-    Format(dep, sizeof(dep), "%s.vvd", base);        AddFileToDownloadsTable(dep);
-    Format(dep, sizeof(dep), "%s.vtx", base);        AddFileToDownloadsTable(dep);
-    Format(dep, sizeof(dep), "%s.dx90.vtx", base);   AddFileToDownloadsTable(dep);
-    Format(dep, sizeof(dep), "%s.phy", base);        AddFileToDownloadsTable(dep);
-
-    // naive materials mapping (models/... -> materials/...)
-    char mat[PLATFORM_MAX_PATH];
-    strcopy(mat, sizeof(mat), base);
-    ReplaceString(mat, sizeof(mat), "models/", "materials/");
-    AddFileToDownloadsTable(mat);
+    Format(dep, sizeof(dep), "%s.vvd", base);      if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.dx80.vtx", base);  if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.dx90.vtx", base);  if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.sw.vtx", base);    if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+    Format(dep, sizeof(dep), "%s.phy", base);       if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
 }
 
-// -----------------------------------------------------------------------------
-// Force configs (optional)
-// -----------------------------------------------------------------------------
+/**
+ * Загружает списки моделей для принудительной установки.
+ */
 void LoadForceConfigs()
 {
-    // Clear counts
     g_ForcePlayerCountT = g_ForcePlayerCountCT = 0;
     g_ForceAdminCountT  = g_ForceAdminCountCT  = 0;
     g_ForceBotsCountT   = g_ForceBotsCountCT   = 0;
 
-    // Player force
-    if (GetConVarInt(g_cvarForcePlayerSkin) == 1) {
+    if (g_cvarForcePlayerSkin.BoolValue) {
         g_ForcePlayerCountT  = LoadSimpleModelList("configs/sm_skinchooser/force/player_t.ini",  g_ForcePlayerTeamT,  sizeof(g_ForcePlayerTeamT));
         g_ForcePlayerCountCT = LoadSimpleModelList("configs/sm_skinchooser/force/player_ct.ini", g_ForcePlayerTeamCT, sizeof(g_ForcePlayerTeamCT));
     }
-
-    // Admin force
-    if (GetConVarInt(g_cvarSkinAdmin) == 1) {
+    if (g_cvarSkinAdmin.BoolValue) {
         g_ForceAdminCountT  = LoadSimpleModelList("configs/sm_skinchooser/force/admin_t.ini",  g_ForceAdminTeamT,  sizeof(g_ForceAdminTeamT));
         g_ForceAdminCountCT = LoadSimpleModelList("configs/sm_skinchooser/force/admin_ct.ini", g_ForceAdminTeamCT, sizeof(g_ForceAdminTeamCT));
     }
-
-    // Bots force
-    if (GetConVarInt(g_cvarSkinBots) == 1) {
+    if (g_cvarSkinBots.BoolValue) {
         g_ForceBotsCountT  = LoadSimpleModelList("configs/sm_skinchooser/force/bots_t.ini",  g_ForceBotsTeamT,  sizeof(g_ForceBotsTeamT));
         g_ForceBotsCountCT = LoadSimpleModelList("configs/sm_skinchooser/force/bots_ct.ini", g_ForceBotsTeamCT, sizeof(g_ForceBotsTeamCT));
     }
 }
 
-// Each line is a model path; validates existence and precaches safely.
+/**
+ * Вспомогательная функция, читает простой текстовый файл, где каждая
+ * строка - путь к модели, и добавляет их в массив.
+ */
 int LoadSimpleModelList(const char[] iniPath, char[][] outArray, int outArraySize)
 {
     int count = 0;
     char file[PLATFORM_MAX_PATH];
     BuildPath(Path_SM, file, sizeof(file), iniPath);
 
-    Handle fh = OpenFile(file, "r");
-    if (fh == INVALID_HANDLE) {
-        return 0;
-    }
+    File fh = OpenFile(file, "r");
+    if (fh == null) return 0;
 
     char line[PLATFORM_MAX_PATH];
-    while (ReadFileLine(fh, line, sizeof(line))) {
+    while (fh.ReadLine(line, sizeof(line))) {
         TrimString(line);
-        if (line[0] == '\0')            continue;
-        if (line[0] == '/' && line[1] == '/') continue; // comment
+        if (line[0] == '\0' || (line[0] == '/' && line[1] == '/')) continue;
 
+        // Здесь также исправлена проверка на `FileExists(line, true)`
         if (!FileExists(line, true)) {
-            LogError("[SM_SKINCHOOSER] Force list missing file '%s' in %s", line, file);
             continue;
         }
 
         if (count < (outArraySize / PLATFORM_MAX_PATH)) {
             strcopy(outArray[count], PLATFORM_MAX_PATH, line);
             PrecacheModel(line, true);
-            AddModelAndDependenciesToDownloads(line);
+            // Для принудительных списков используем упрощенную загрузку зависимостей
+            char base[PLATFORM_MAX_PATH];
+            strcopy(base, sizeof(base), line);
+            ReplaceString(base, sizeof(base), ".mdl", "");
+            char dep[PLATFORM_MAX_PATH];
+            Format(dep, sizeof(dep), "%s.vvd", base);      if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+            Format(dep, sizeof(dep), "%s.dx90.vtx", base); if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
+            Format(dep, sizeof(dep), "%s.phy", base);      if (FileExists(dep, true)) AddFileToDownloadsTable(dep);
             count++;
         } else {
-            LogError("[SM_SKINCHOOSER] Force list overflow for %s", iniPath);
             break;
         }
     }
-    CloseHandle(fh);
+    delete fh;
     return count;
 }
 
-// -----------------------------------------------------------------------------
-// Menus
-// -----------------------------------------------------------------------------
-Handle BuildMainMenu(int client)
+// --- Логика меню ---
+
+/**
+ * Создает и отображает главное меню выбора групп моделей.
+ */
+Menu BuildMainMenu(int client)
 {
-    if (g_hKVModels == INVALID_HANDLE || !KvGotoFirstSubKey(g_hKVModels))
-        return INVALID_HANDLE;
+    if (g_hKVModels == null) return null;
+    g_hKVModels.Rewind();
+    if (!g_hKVModels.GotoFirstSubKey()) return null;
 
-    Handle menu = CreateMenu(Menu_Group);
-    char groupName[64];
+    Menu menu = new Menu(Menu_Group);
+    menu.SetTitle("Выбор группы моделей");
 
+    int playerFlags = GetUserFlagBits(client);
+
+    // Проходим по всем группам в конфиге
     do {
-        KvGetSectionName(g_hKVModels, groupName, sizeof(groupName));
+        char groupName[64];
+        g_hKVModels.GetSectionName(groupName, sizeof(groupName));
 
-        // Filter out service sections if any were accidentally at top-level
-        if (StrEqual(groupName, "Team_T") || StrEqual(groupName, "Team_CT"))
-            continue;
+        // Проверяем, есть ли у группы ограничение по флагам (поддерживаем оба ключа: "Admin" и "Flags")
+        char sFlags[32];
+        g_hKVModels.GetString("Admin", sFlags, sizeof(sFlags), "");
+        if (sFlags[0] == '\0') {
+            g_hKVModels.GetString("Flags", sFlags, sizeof(sFlags), "");
+        }
 
-        AddMenuItem(menu, groupName, groupName);
-    } while (KvGotoNextKey(g_hKVModels));
+        bool bHasAccess = false;
+        if (sFlags[0] == '\0') { // Если флагов нет, группа общедоступна
+            bHasAccess = true;
+        } else {
+            int requiredFlags = ReadFlagString(sFlags);
+            if ((playerFlags & requiredFlags) == requiredFlags) {
+                bHasAccess = true;
+            }
+        }
 
-    // Moved from submenu to main menu
-    AddMenuItem(menu, "reset", "[Вернуть стандартную модель]");
+        if (bHasAccess) {
+            // Если провека прошла, добавляем группу в меню
+            menu.AddItem(groupName, groupName);
+        }
+    } while (g_hKVModels.GotoNextKey());
 
-    KvRewind(g_hKVModels);
-    SetMenuTitle(menu, "Выбор группы моделей");
+    menu.AddItem("reset", "[Вернуть стандартную модель]");
+
+    g_hKVModels.Rewind(); // Возвращаем указатель в начало для следующих операций
     return menu;
 }
 
-public int Menu_Group(Handle menu, MenuAction action, int client, int param2)
+/**
+ * Обработчик главного меню. Вызывается, когда игрок выбирает группу.
+ */
+public void Menu_Group(Menu menu, MenuAction action, int client, int param2)
 {
     if (action == MenuAction_Select) {
         char group[64];
-        GetMenuItem(menu, param2, group, sizeof(group));
+        menu.GetItem(param2, group, sizeof(group));
 
-        // Handle reset option from main menu
+        // Обработка выбора пункта сброса модели
         if (StrEqual(group, "reset")) {
             ResetToDefaultModel(client);
             SavePlayerChoice(client, "");
-            PrintToChat(client, "[SM] Вернул стандартную модель.");
-            return 0;
+            CPrintToChat(client, "{green}[SM] {default}Вернул стандартную модель.");
+            return;
         }
 
-        KvJumpToKey(g_hKVModels, group, false);
+        // Переходим в выбранную игроком группу
+        g_hKVModels.JumpToKey(group);
 
-        // Determine team section
+        // Определяем команду игрока и переходим в соответствующую подсекцию
         if (GetClientTeam(client) == CS_TEAM_T) {
-            KvJumpToKey(g_hKVModels, "Team_T", false);
+            g_hKVModels.JumpToKey("Team_T");
         } else if (GetClientTeam(client) == CS_TEAM_CT) {
-            KvJumpToKey(g_hKVModels, "Team_CT", false);
+            g_hKVModels.JumpToKey("Team_CT");
         } else {
-            KvRewind(g_hKVModels);
-            return 0; // spectator: no menu
+            g_hKVModels.Rewind(); // Если наблюдатель, выходим
+            return;
         }
 
-        if (!KvGotoFirstSubKey(g_hKVModels)) {
-            KvRewind(g_hKVModels);
-            PrintToChat(client, "[SM] В группе '%s' нет доступных моделей.", group);
-            return 0;
+        // Пытаемся войти в список моделей
+        if (!g_hKVModels.GotoFirstSubKey()) {
+            g_hKVModels.Rewind();
+            // Сообщаем игроку, что в группе нет моделей для его команды
+            CPrintToChat(client, "{red}[SM] {default}Не удалось прочесть модели внутри группы {yellow}%s{default}.", group);
+            return;
         }
 
-        Handle sub = CreateMenu(Menu_Model);
+        // Создаем подменю для отображения моделей
+        Menu sub = new Menu(Menu_Model);
+        sub.SetTitle(group);
         char entryName[64], path[PLATFORM_MAX_PATH];
+        int modelCount = 0; // Счетчик валидных моделей
 
+        // Проходим по всем моделям в секции
         do {
-            entryName[0] = '\0';
-            path[0] = '\0';
-            KvGetSectionName(g_hKVModels, entryName, sizeof(entryName));
-            KvGetString(g_hKVModels, "path", path, sizeof(path), "");
+            g_hKVModels.GetSectionName(entryName, sizeof(entryName));
+            g_hKVModels.GetString("path", path, sizeof(path), "");
 
-            if (path[0] == '\0' || !FileExists(path, true)) {
-                LogError("[SM_SKINCHOOSER] Bad model entry '%s' in group '%s' (missing path)", entryName, group);
-                continue;
+            // Проверяем, что модель существует
+            if (path[0] != '\0' && FileExists(path, true)) {
+                sub.AddItem(path, entryName);
+                modelCount++; // Увеличиваем счетчик
             }
+        } while (g_hKVModels.GotoNextKey());
 
-            AddMenuItem(sub, path, entryName);
-        } while (KvGotoNextKey(g_hKVModels));
-
-        SetMenuTitle(sub, group);
-        DisplayMenu(sub, client, MENU_TIME_FOREVER);
-        KvRewind(g_hKVModels);
+        // Если найдены модели, показываем меню
+        if (modelCount > 0) {
+            CPrintToChat(client, "{green}[SM] {default}Доступно моделей: {yellow}%d", modelCount);
+            sub.Display(client, g_cvarCloseMenuTimer.IntValue);
+        } else {
+            // Иначе сообщаем, что моделей нет
+            CPrintToChat(client, "{red}[SM] {default}В группе {yellow}%s{default} нет доступных моделей.", group);
+        }
+        
+        // ВАЖНО: всегда сбрасываем указатель в начало файла после завершения операции,
+        // чтобы следующий вызов меню работал корректно.
+        g_hKVModels.Rewind();
     }
     else if (action == MenuAction_End) {
-        CloseHandle(menu);
+        delete menu;
     }
-    return 0;
 }
 
-public int Menu_Model(Handle menu, MenuAction action, int client, int param2)
+/**
+ * Обработчик подменю. Вызывается, когда игрок выбирает конкретную модель.
+ */
+public void Menu_Model(Menu menu, MenuAction action, int client, int param2)
 {
     if (action == MenuAction_Select) {
         char path[PLATFORM_MAX_PATH];
-        GetMenuItem(menu, param2, path, sizeof(path));
+        menu.GetItem(param2, path, sizeof(path));
 
-        // Ensure we have SteamID cached
         CacheClientAuthId(client);
 
-        if (StrEqual(path, "reset")) {
-            ResetToDefaultModel(client);
-            SavePlayerChoice(client, "");
-            PrintToChat(client, "[SM] Вернул стандартную модель.");
-            return 0;
-        }
-
+        // Снова исправленная проверка на существование файла
         if (!FileExists(path, true)) {
-            PrintToChat(client, "[SM] Модель не найдена: %s", path);
-            return 0;
+            CPrintToChat(client, "{red}[SM] {default}Ошибка: файл модели не найден: {yellow}%s", path);
+            return;
         }
 
+        // Если модель по какой-то причине не была загружена ранее,
+        // делаем это "на лету".
         if (!IsModelPrecached(path)) {
             PrecacheModel(path, true);
             AddModelAndDependenciesToDownloads(path);
         }
 
+        // Устанавливаем модель игроку и сохраняем его выбор
         SetEntityModel(client, path);
         SavePlayerChoice(client, path);
-        PrintToChat(client, "[SM] Установлена модель: %s", path);
+        CPrintToChat(client, "{green}[SM] {default}Установлена модель: {yellow}%s", path);
     }
     else if (action == MenuAction_End) {
-        CloseHandle(menu);
+        delete menu;
     }
-    return 0;
 }
 
-// -----------------------------------------------------------------------------
-// Commands
-// -----------------------------------------------------------------------------
+// --- Команды и События ---
+
 public Action Command_Model(int client, int args)
 {
-    if (GetConVarInt(g_cvarEnabled) != 1)
+    if (!g_cvarEnabled.BoolValue || !IsValidClient(client) || IsFakeClient(client)) {
         return Plugin_Handled;
+    }
 
-    if (!IsValidClient(client) || IsFakeClient(client))
-        return Plugin_Handled;
-
-    // Admin-only gate
-    if (GetConVarInt(g_cvarAdminOnly) == 1) {
+    if (g_cvarAdminOnly.BoolValue) {
         AdminId adm = GetUserAdmin(client);
-        if (adm == INVALID_ADMIN_ID) {
-            PrintToChat(client, "[SM] Меню доступно только админам.");
+        if (adm == INVALID_ADMIN_ID || !adm.HasFlag(Admin_Generic)) {
+            CPrintToChat(client, "{red}[SM] {default}Меню доступно только админам.");
             return Plugin_Handled;
         }
     }
 
-    Handle menu = BuildMainMenu(client);
-    if (menu == INVALID_HANDLE) {
-        PrintToChat(client, "[SM] Ошибка генерации меню. Проверьте configs/sm_skinchooser/*.ini");
+    Menu menu = BuildMainMenu(client);
+    if (menu == null) {
+        CPrintToChat(client, "{red}[SM] {default}Ошибка генерации меню.");
         return Plugin_Handled;
     }
 
-    DisplayMenu(menu, client, GetConVarInt(g_cvarCloseMenuTimer));
+    menu.Display(client, g_cvarCloseMenuTimer.IntValue);
     return Plugin_Handled;
 }
 
-// -----------------------------------------------------------------------------
-// Events
-// -----------------------------------------------------------------------------
-public Action Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
+public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
-    if (GetConVarInt(g_cvarEnabled) != 1)
-        return Plugin_Continue;
+    if (!g_cvarEnabled.BoolValue) return;
 
     int client = GetClientOfUserId(event.GetInt("userid"));
-    int team   = event.GetInt("team");
-
-    if (!IsValidClient(client) || IsFakeClient(client))
-        return Plugin_Continue;
+    if (!IsValidClient(client) || IsFakeClient(client)) return;
 
     CacheClientAuthId(client);
 
-    if (GetConVarBool(g_cvarAutodisplay) && (team == CS_TEAM_T || team == CS_TEAM_CT)) {
-        if (GetConVarBool(g_cvarDisplayTimer)) {
-            CreateTimer(GetConVarFloat(g_cvarMenuStartTime), Timer_ShowMenuDelayed, client);
+    if (g_cvarAutodisplay.BoolValue && (event.GetInt("team") >= CS_TEAM_T)) {
+        if (g_cvarDisplayTimer.BoolValue) {
+            CreateTimer(g_cvarMenuStartTime.FloatValue, Timer_ShowMenuDelayed, GetClientUserId(client));
         } else {
             Command_Model(client, 0);
         }
     }
-    return Plugin_Continue;
 }
 
-public Action Timer_ShowMenuDelayed(Handle timer, any client)
+public void Timer_ShowMenuDelayed(Handle timer, any userid)
 {
-    if (!IsValidClient(client) || IsFakeClient(client))
-        return Plugin_Stop;
-
-    Command_Model(client, 0);
-    return Plugin_Stop;
+    int client = GetClientOfUserId(userid);
+    if (IsValidClient(client) && !IsFakeClient(client)) {
+        Command_Model(client, 0);
+    }
 }
 
-public Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+
+
+
+
+public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+
 {
-    if (GetConVarInt(g_cvarEnabled) != 1)
-        return Plugin_Continue;
+
+    if (!g_cvarEnabled.BoolValue) return;
+
+
 
     int client = GetClientOfUserId(event.GetInt("userid"));
-    if (!IsValidClient(client))
-        return Plugin_Continue;
 
-    // Capture original model (for reset)
+    if (!IsValidClient(client)) return;
+
+
+
+    // Запоминаем стандартную модель при КАЖДОМ возрождении, как в v5.5
+
     GetEntPropString(client, Prop_Data, "m_ModelName", g_originalModel[client], sizeof(g_originalModel[]));
 
-    // Apply saved choice (if valid)
+
+
+    // Применяем скин, который игрок выбрал ранее
+
     ApplySavedChoiceIfAny(client);
 
-    // Force Admin skins
-    if (!IsFakeClient(client) && GetConVarInt(g_cvarSkinAdmin) == 1) {
+
+
+    // Логика принудительной установки скинов
+
+    if (IsFakeClient(client)) {
+
+        if (g_cvarSkinBots.BoolValue) ForceBotSkinNow(client);
+
+    } else {
+
         AdminId adm = GetUserAdmin(client);
-        if (adm != INVALID_ADMIN_ID) {
-            if (GetConVarInt(g_cvarSkinAdminTimerEnabled) == 1) {
-                CreateTimer(GetConVarFloat(g_cvarSkinAdminTimer), Timer_ForceAdminSkin, client);
+
+        if (adm != INVALID_ADMIN_ID && g_cvarSkinAdmin.BoolValue) {
+
+             if (g_cvarSkinAdminTimerEnabled.BoolValue) {
+
+                CreateTimer(g_cvarSkinAdminTimer.FloatValue, Timer_ForceAdminSkin, GetClientUserId(client));
+
             } else {
+
                 ForceAdminSkinNow(client);
-            }
-        }
-    }
 
-    // Force Player skins (non-admin)
-    if (!IsFakeClient(client) && GetConVarInt(g_cvarForcePlayerSkin) == 1) {
-        AdminId adm = GetUserAdmin(client);
-        if (adm == INVALID_ADMIN_ID) {
-            if (GetConVarInt(g_cvarForcePlayerSkinTimerEnabled) == 1) {
-                CreateTimer(GetConVarFloat(g_cvarForcePlayerSkinTimer), Timer_ForcePlayerSkin, client);
+            }
+
+        } else if (adm == INVALID_ADMIN_ID && g_cvarForcePlayerSkin.BoolValue) {
+
+            if (g_cvarForcePlayerSkinTimerEnabled.BoolValue) {
+
+                CreateTimer(g_cvarForcePlayerSkinTimer.FloatValue, Timer_ForcePlayerSkin, GetClientUserId(client));
+
             } else {
+
                 ForcePlayerSkinNow(client);
+
             }
+
         }
+
     }
 
-    // Force Bot skins
-    if (IsFakeClient(client) && GetConVarInt(g_cvarSkinBots) == 1) {
-        ForceBotSkinNow(client);
-    }
-
-    return Plugin_Continue;
 }
 
-// -----------------------------------------------------------------------------
-// Save / load player choice
-// -----------------------------------------------------------------------------
+
+
+// --- Вспомогательные функции ---
+
+
+
+
+
+
+
 void CacheClientAuthId(int client)
+
 {
+
     if (g_authId[client][0] == '\0') {
+
         GetClientAuthId(client, AuthId_Steam2, g_authId[client], sizeof(g_authId[]));
+
     }
+
 }
+
+
 
 void SavePlayerChoice(int client, const char[] modelPath)
+
 {
-    if (g_hKVPlayerChoice == INVALID_HANDLE)
-        return;
+
+    if (g_hKVPlayerChoice == null || !g_cvarSaveChoice.BoolValue) return;
+
+
 
     CacheClientAuthId(client);
-    KvJumpToKey(g_hKVPlayerChoice, g_authId[client], true);
 
-    if (GetClientTeam(client) == CS_TEAM_T) {
-        KvSetString(g_hKVPlayerChoice, "Team_T", modelPath);
-    } else if (GetClientTeam(client) == CS_TEAM_CT) {
-        KvSetString(g_hKVPlayerChoice, "Team_CT", modelPath);
+    g_hKVPlayerChoice.JumpToKey(g_authId[client], true);
+
+
+
+    int team = GetClientTeam(client);
+
+    if (team == CS_TEAM_T) {
+
+        g_hKVPlayerChoice.SetString("Team_T", modelPath);
+
     }
 
-    KvGoBack(g_hKVPlayerChoice);
+    else if (team == CS_TEAM_CT) {
 
-    // Persist to file
-    char mapName[PLATFORM_MAX_PATH], filePath[PLATFORM_MAX_PATH];
+        g_hKVPlayerChoice.SetString("Team_CT", modelPath);
+
+    }
+
+
+
+    g_hKVPlayerChoice.GoBack();
+
+
+
+    char mapName[64], filePath[PLATFORM_MAX_PATH];
+
     GetCurrentMap(mapName, sizeof(mapName));
 
-    if (GetConVarInt(g_cvarMapbased) == 1) {
-        BuildPath(Path_SM, filePath, sizeof(filePath), "data/%s_skinchooser_playermodels.ini", mapName);
+
+
+    if (g_cvarMapbased.BoolValue) {
+
+        BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/%s_playermodels.ini", mapName);
+
     } else {
-        BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser_playermodels.ini");
+
+        BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/skinchooser_playermodels.ini");
+
     }
 
-    KeyValuesToFile(g_hKVPlayerChoice, filePath);
+
+
+    g_hKVPlayerChoice.ExportToFile(filePath);
+
 }
+
+
 
 void ApplySavedChoiceIfAny(int client)
+
 {
-    if (g_hKVPlayerChoice == INVALID_HANDLE)
-        return;
+
+    if (g_hKVPlayerChoice == null || !g_cvarLoadChoice.BoolValue) return;
+
+
 
     CacheClientAuthId(client);
-    KvJumpToKey(g_hKVPlayerChoice, g_authId[client], false);
+
+    if (!g_hKVPlayerChoice.JumpToKey(g_authId[client])) return;
+
+
 
     char path[PLATFORM_MAX_PATH];
-    if (GetClientTeam(client) == CS_TEAM_T) {
-        KvGetString(g_hKVPlayerChoice, "Team_T", path, sizeof(path), "");
-    } else if (GetClientTeam(client) == CS_TEAM_CT) {
-        KvGetString(g_hKVPlayerChoice, "Team_CT", path, sizeof(path), "");
-    } else {
+
+    int team = GetClientTeam(client);
+
+
+
+    if (team == CS_TEAM_T) {
+
+        g_hKVPlayerChoice.GetString("Team_T", path, sizeof(path));
+
+    }
+
+    else if (team == CS_TEAM_CT) {
+
+        g_hKVPlayerChoice.GetString("Team_CT", path, sizeof(path));
+
+    }
+
+    else {
+
         path[0] = '\0';
-    }
-    KvGoBack(g_hKVPlayerChoice);
 
-    if (path[0] == '\0')
-        return;
-
-    if (!FileExists(path, true)) {
-        LogError("[SM_SKINCHOOSER] Saved model missing '%s' for %N. Ignoring.", path, client);
-        return;
     }
 
-    if (!IsModelPrecached(path)) {
-        PrecacheModel(path, true);
-        AddModelAndDependenciesToDownloads(path);
+    
+
+    g_hKVPlayerChoice.GoBack();
+
+
+
+    if (path[0] == '\0' || !FileExists(path, true)) {
+
+        return; // Нет выбранной модели для применения
+
     }
+
+
+
+    // Дополнительная проверка: есть ли у игрока все еще доступ к этой модели?
+
+    char groupName[64];
+
+    if (FindGroupForModel(path, groupName, sizeof(groupName))) {
+
+        g_hKVModels.Rewind();
+
+        g_hKVModels.JumpToKey(groupName);
+
+                char sFlags[32];
+
+                int iFlags = 0;
+
+                g_hKVModels.GetString("Admin", sFlags, sizeof(sFlags)); // Ищем ключ "Admin"
+
+        if (sFlags[0] == '\0') {
+
+            g_hKVModels.GetString("Flags", sFlags, sizeof(sFlags), "");
+
+        }
+
+
+
+        if (sFlags[0] != '\0') {
+
+            iFlags = ReadFlagString(sFlags);
+
+            if ((GetUserFlagBits(client) & iFlags) != iFlags) {
+
+                return; // Доступ запрещен, модель не применяем
+
+            }
+
+        }
+
+        g_hKVModels.Rewind();
+
+    }
+
+
+
+    if (!IsModelPrecached(path)) PrecacheModel(path, true);
+
     SetEntityModel(client, path);
+
 }
 
-// -----------------------------------------------------------------------------
-// Reset
-// -----------------------------------------------------------------------------
+
+
+/**
+
+ * Ищет, к какой группе принадлежит указанный файл модели.
+
+ * Необходимо для проверки, есть ли у игрока до сих пор доступ к модели.
+
+ */
+
+bool FindGroupForModel(const char[] modelPath, char[] groupBuffer, int bufferSize)
+
+{
+
+    if (g_hKVModels == null) return false;
+
+    g_hKVModels.Rewind();
+
+    if (!g_hKVModels.GotoFirstSubKey()) return false;
+
+
+
+    do {
+
+        g_hKVModels.GetSectionName(groupBuffer, bufferSize);
+
+        if (g_hKVModels.JumpToKey("Team_T", false)) {
+
+            if (g_hKVModels.GotoFirstSubKey()) {
+
+                do {
+
+                    char path[PLATFORM_MAX_PATH];
+
+                    g_hKVModels.GetString("path", path, sizeof(path));
+
+                    if (StrEqual(path, modelPath)) {
+
+                        g_hKVModels.Rewind();
+
+                        return true;
+
+                    }
+
+                } while (g_hKVModels.GotoNextKey());
+
+                g_hKVModels.GoBack();
+
+            }
+
+            g_hKVModels.GoBack();
+
+        }
+
+        if (g_hKVModels.JumpToKey("Team_CT", false)) {
+
+            if (g_hKVModels.GotoFirstSubKey()) {
+
+                do {
+
+                    char path[PLATFORM_MAX_PATH];
+
+                    g_hKVModels.GetString("path", path, sizeof(path));
+
+                    if (StrEqual(path, modelPath)) {
+
+                        g_hKVModels.Rewind();
+
+                        return true;
+
+                    }
+
+                } while (g_hKVModels.GotoNextKey());
+
+                g_hKVModels.GoBack();
+
+            }
+
+            g_hKVModels.GoBack();
+
+        }
+
+    } while (g_hKVModels.GotoNextKey());
+
+
+
+    g_hKVModels.Rewind();
+
+    return false;
+
+}
+
+
+
 void ResetToDefaultModel(int client)
+
 {
+
+    // Устанавливаем модель, которая была у игрока при последнем спавне
+
     if (g_originalModel[client][0] != '\0') {
+
         SetEntityModel(client, g_originalModel[client]);
+
     }
+
+
+
+    // Очищаем сохраненный выбор, только если сохранение включено
+
+    if (g_hKVPlayerChoice == null || !g_cvarSaveChoice.BoolValue) return;
+
+
+
+    CacheClientAuthId(client);
+
+    if (!g_hKVPlayerChoice.JumpToKey(g_authId[client])) return;
+
+
+
+    int team = GetClientTeam(client);
+
+    if (team == CS_TEAM_T) {
+
+        g_hKVPlayerChoice.SetString("Team_T", ""); // Очищаем выбор
+
+    }
+
+    else if (team == CS_TEAM_CT) {
+
+        g_hKVPlayerChoice.SetString("Team_CT", ""); // Очищаем выбор
+
+    }
+
+    g_hKVPlayerChoice.GoBack();
+
+
+
+    char mapName[64], filePath[PLATFORM_MAX_PATH];
+
+    GetCurrentMap(mapName, sizeof(mapName));
+
+
+
+    if (g_cvarMapbased.BoolValue) {
+
+        BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/%s_playermodels.ini", mapName);
+
+    } else {
+
+        BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/skinchooser_playermodels.ini");
+
+    }
+
+
+
+    g_hKVPlayerChoice.ExportToFile(filePath);
+
 }
 
-// -----------------------------------------------------------------------------
-// Force systems
-// -----------------------------------------------------------------------------
-public Action Timer_ForceAdminSkin(Handle timer, any client)
+
+
+public void Timer_ForceAdminSkin(Handle timer, any userid)
 {
-    ForceAdminSkinNow(client);
-    return Plugin_Stop;
+    int client = GetClientOfUserId(userid);
+    if(IsValidClient(client)) ForceAdminSkinNow(client);
 }
-public Action Timer_ForcePlayerSkin(Handle timer, any client)
+public void Timer_ForcePlayerSkin(Handle timer, any userid)
 {
-    ForcePlayerSkinNow(client);
-    return Plugin_Stop;
+    int client = GetClientOfUserId(userid);
+    if(IsValidClient(client)) ForcePlayerSkinNow(client);
 }
 
 void ForceAdminSkinNow(int client)
@@ -698,9 +1011,6 @@ void ForceBotSkinNow(int client)
     }
 }
 
-// -----------------------------------------------------------------------------
-// Utils
-// -----------------------------------------------------------------------------
 stock bool IsValidClient(int client)
 {
     return (client > 0 && client <= MaxClients && IsClientConnected(client) && IsClientInGame(client));

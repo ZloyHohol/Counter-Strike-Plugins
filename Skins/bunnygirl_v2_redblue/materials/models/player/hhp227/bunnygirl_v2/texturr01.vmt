@@ -1,0 +1,11 @@
+"vertexlitgeneric"
+{
+	"$baseTexture" "models\player\hhp227\bunnygirl_v2/texturr01"
+        "$envmap" 			"env_cubemap"
+        "$bumpmap" "models\player\hhp227\bunnygirl_v2/normal_texture01"
+	"$normalmapalphaenvmapmask" 1
+	"$envmapcontrast" 0.3
+	"$envmapsaturation" 0.7
+	"$envmaptint" "[ 0.66 0.06 0.06 ]"
+	"$halflambert" 1
+}

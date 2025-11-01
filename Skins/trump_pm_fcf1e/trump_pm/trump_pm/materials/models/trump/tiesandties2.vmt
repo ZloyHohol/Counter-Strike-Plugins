@@ -1,0 +1,5 @@
+"VertexLitGeneric"
+{
+	"$baseTexture" "models/Trump/tiesandties2"
+	"$bumpmap" "models/Trump/normalmap_flat"
+}
