@@ -360,7 +360,7 @@ Menu BuildMainMenu(int client)
     Menu menu = new Menu(Menu_Group);
     menu.SetTitle("Выбор группы моделей");
 
-    AdminId admin = GetUserAdmin(client);
+    int playerFlags = GetUserFlagBits(client);
 
     // Проходим по всем группам в конфиге
     do {
@@ -377,15 +377,10 @@ Menu BuildMainMenu(int client)
         bool bHasAccess = false;
         if (sFlags[0] == '\0') { // Если флагов нет, группа общедоступна
             bHasAccess = true;
-        } else if (admin != INVALID_ADMIN_ID) { // Если админ, проверяем флаги
-            for (int i = 0; sFlags[i] != '\0'; i++) {
-                AdminFlag flag = Admin_Generic; // Default to generic if char not found
-                if (FindFlagByChar(sFlags[i], flag)) {
-                    if (GetAdminFlag(admin, flag, Access_Effective)) {
-                        bHasAccess = true;
-                        break; // Достаточно одного совпадения
-                    }
-                }
+        } else {
+            int requiredFlags = ReadFlagString(sFlags);
+            if ((playerFlags & requiredFlags) == requiredFlags) {
+                bHasAccess = true;
             }
         }
 
