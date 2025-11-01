@@ -203,6 +203,7 @@ void LoadConfig()
     g_kvHumans = new KeyValues("Groups");
     if (!FileExists(human_path))
     {
+        LogMessage("[RHA] RHA_humans.cfg not found. Creating a default version.");
         // Create default RHA_humans.cfg
         KeyValues kv = new KeyValues("Groups");
         kv.JumpToKey("Guest", true);
@@ -233,7 +234,7 @@ void LoadConfig()
     }
     if (!g_kvHumans.ImportFromFile(human_path))
     {
-        LogError("Failed to load config file: %s", human_path);
+        LogError("[RHA] Failed to load or parse config file: %s. Check for syntax errors.", human_path);
     }
 
     // --- Load Bots Config ---
@@ -243,6 +244,7 @@ void LoadConfig()
     g_kvBots = new KeyValues("Bots");
     if (!FileExists(bot_path))
     {
+        LogMessage("[RHA] RHA_bots.cfg not found. Creating a default version.");
         // Create default RHA_bots.cfg
         KeyValues kv = new KeyValues("Bots");
         kv.JumpToKey("Team_T", true);
@@ -258,7 +260,7 @@ void LoadConfig()
     }
     if (!g_kvBots.ImportFromFile(bot_path))
     {
-        LogError("Failed to load config file: %s", bot_path);
+        LogError("[RHA] Failed to load or parse config file: %s. Check for syntax errors.", bot_path);
     }
 }
 
