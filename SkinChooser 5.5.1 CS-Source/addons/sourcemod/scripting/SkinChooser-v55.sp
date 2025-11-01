@@ -22,6 +22,7 @@
 #include <sdktools>
 #include <cstrike>
 #include <multicolors> // Добавлено для цветных сообщений
+#include <admin>       // Добавлено для работы с флагами администраторов
 
 #define PLUGIN_VERSION "5.5.1"
 
@@ -359,6 +360,8 @@ Menu BuildMainMenu(int client)
     Menu menu = new Menu(Menu_Group);
     menu.SetTitle("Выбор группы моделей");
 
+    AdminId admin = GetUserAdmin(client);
+
     // Проходим по всем группам в конфиге
     do {
         char groupName[64];
@@ -371,17 +374,25 @@ Menu BuildMainMenu(int client)
             g_hKVModels.GetString("Flags", sFlags, sizeof(sFlags), "");
         }
 
-        if (sFlags[0] != '\0') {
-            int iFlags = ReadFlagString(sFlags); // Превращаем строку "z" в битовый флаг
-            // Сравниваем флаги игрока с требуемыми.
-            // Если у игрока нет ВСЕХ требуемых флагов, пропускаем эту группу.
-            if ((GetUserFlagBits(client) & iFlags) != iFlags) {
-                continue;
+        bool bHasAccess = false;
+        if (sFlags[0] == '\0') { // Если флагов нет, группа общедоступна
+            bHasAccess = true;
+        } else if (admin != INVALID_ADMIN_ID) { // Если админ, проверяем флаги
+            for (int i = 0; sFlags[i] != '\0'; i++) {
+                AdminFlag flag = Admin_Generic; // Default to generic if char not found
+                if (FindFlagByChar(sFlags[i], flag)) {
+                    if (GetAdminFlag(admin, flag, Access_Effective)) {
+                        bHasAccess = true;
+                        break; // Достаточно одного совпадения
+                    }
+                }
             }
         }
 
-        // Если провека прошла, добавляем группу в меню
-        menu.AddItem(groupName, groupName);
+        if (bHasAccess) {
+            // Если провека прошла, добавляем группу в меню
+            menu.AddItem(groupName, groupName);
+        }
     } while (g_hKVModels.GotoNextKey());
 
     menu.AddItem("reset", "[Вернуть стандартную модель]");
