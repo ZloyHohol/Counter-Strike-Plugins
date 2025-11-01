@@ -211,10 +211,12 @@ void LoadConfig()
         kv.JumpToKey("Team_T", true);
         kv.SetNum("health", 100);
         kv.SetNum("armor", 0);
+        kv.SetNum("Helmet", 0);
         kv.GoBack();
         kv.JumpToKey("Team_CT", true);
         kv.SetNum("health", 100);
         kv.SetNum("armor", 0);
+        kv.SetNum("Helmet", 0);
         kv.GoBack();
         kv.GoBack();
         kv.JumpToKey("Admin_z", true);
@@ -223,10 +225,12 @@ void LoadConfig()
         kv.JumpToKey("Team_T", true);
         kv.SetNum("health", 120);
         kv.SetNum("armor", 100);
+        kv.SetNum("Helmet", 1);
         kv.GoBack();
         kv.JumpToKey("Team_CT", true);
         kv.SetNum("health", 120);
         kv.SetNum("armor", 100);
+        kv.SetNum("Helmet", 1);
         kv.GoBack();
         kv.GoBack();
         kv.ExportToFile(human_path);
@@ -250,10 +254,12 @@ void LoadConfig()
         kv.JumpToKey("Team_T", true);
         kv.SetNum("health", 90);
         kv.SetNum("armor", 50);
+        kv.SetNum("Helmet", 1);
         kv.GoBack();
         kv.JumpToKey("Team_CT", true);
         kv.SetNum("health", 90);
         kv.SetNum("armor", 50);
+        kv.SetNum("Helmet", 1);
         kv.GoBack();
         kv.ExportToFile(bot_path);
         delete kv;
@@ -337,9 +343,15 @@ void ApplyHealthArmorToClient(int client, bool silent)
     {
         int health = kvGroup.GetNum("health", 100);
         int armor = kvGroup.GetNum("armor", 0);
+        int helmet = kvGroup.GetNum("Helmet", 0);
 
         SetEntProp(client, Prop_Data, "m_iHealth", health);
         SetEntProp(client, Prop_Send, "m_ArmorValue", armor);
+
+        if (armor > 0 && helmet == 1)
+        {
+            SetEntProp(client, Prop_Send, "m_bHasHelmet", 1);
+        }
 
         if (g_hCvarEnableLogging.BoolValue)
         {
