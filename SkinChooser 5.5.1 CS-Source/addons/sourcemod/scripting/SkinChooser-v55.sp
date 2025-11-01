@@ -53,6 +53,10 @@ KeyValues g_hKVPlayerChoice;  // Хранит выбор моделей игро
 char g_authId[MAXPLAYERS+1][64];                // SteamID игроков
 char g_originalModel[MAXPLAYERS+1][PLATFORM_MAX_PATH]; // Путь к стандартной модели игрока
 
+// Массив со стандартными моделями для T и CT
+
+
+
 // Массивы для хранения путей к моделям для принудительной установки
 char g_ForcePlayerTeamT[128][PLATFORM_MAX_PATH];
 char g_ForcePlayerTeamCT[128][PLATFORM_MAX_PATH];
@@ -371,7 +375,7 @@ Menu BuildMainMenu(int client)
             int iFlags = ReadFlagString(sFlags); // Превращаем строку "z" в битовый флаг
             // Сравниваем флаги игрока с требуемыми.
             // Если у игрока нет ВСЕХ требуемых флагов, пропускаем эту группу.
-            if (GetUserFlagBits(client) != iFlags) {
+            if ((GetUserFlagBits(client) & iFlags) != iFlags) {
                 continue;
             }
         }
@@ -546,215 +550,416 @@ public void Timer_ShowMenuDelayed(Handle timer, any userid)
     }
 }
 
-public void OnClientPutInServer(int client)
-{
-    if (client > 0 && !IsFakeClient(client)) {
-        // Очищаем сохраненную оригинальную модель при каждом подключении к серверу
-        g_originalModel[client][0] = '\0';
-    }
-}
+
 
 
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+
 {
+
     if (!g_cvarEnabled.BoolValue) return;
 
+
+
     int client = GetClientOfUserId(event.GetInt("userid"));
+
     if (!IsValidClient(client)) return;
 
-    // Запоминаем оригинальную модель только один раз за сессию (при первом спавне)
-    if (g_originalModel[client][0] == '\0') {
-        GetEntPropString(client, Prop_Data, "m_ModelName", g_originalModel[client], sizeof(g_originalModel[]));
-    }
+
+
+    // Запоминаем стандартную модель при КАЖДОМ возрождении, как в v5.5
+
+    GetEntPropString(client, Prop_Data, "m_ModelName", g_originalModel[client], sizeof(g_originalModel[]));
+
+
 
     // Применяем скин, который игрок выбрал ранее
+
     ApplySavedChoiceIfAny(client);
 
+
+
     // Логика принудительной установки скинов
+
     if (IsFakeClient(client)) {
+
         if (g_cvarSkinBots.BoolValue) ForceBotSkinNow(client);
+
     } else {
+
         AdminId adm = GetUserAdmin(client);
+
         if (adm != INVALID_ADMIN_ID && g_cvarSkinAdmin.BoolValue) {
+
              if (g_cvarSkinAdminTimerEnabled.BoolValue) {
+
                 CreateTimer(g_cvarSkinAdminTimer.FloatValue, Timer_ForceAdminSkin, GetClientUserId(client));
+
             } else {
+
                 ForceAdminSkinNow(client);
+
             }
+
         } else if (adm == INVALID_ADMIN_ID && g_cvarForcePlayerSkin.BoolValue) {
+
             if (g_cvarForcePlayerSkinTimerEnabled.BoolValue) {
+
                 CreateTimer(g_cvarForcePlayerSkinTimer.FloatValue, Timer_ForcePlayerSkin, GetClientUserId(client));
+
             } else {
+
                 ForcePlayerSkinNow(client);
+
             }
+
         }
+
     }
+
 }
+
+
 
 // --- Вспомогательные функции ---
 
 
 
+
+
+
+
 void CacheClientAuthId(int client)
+
 {
+
     if (g_authId[client][0] == '\0') {
+
         GetClientAuthId(client, AuthId_Steam2, g_authId[client], sizeof(g_authId[]));
+
     }
+
 }
+
+
 
 void SavePlayerChoice(int client, const char[] modelPath)
+
 {
+
     if (g_hKVPlayerChoice == null || !g_cvarSaveChoice.BoolValue) return;
 
+
+
     CacheClientAuthId(client);
+
     g_hKVPlayerChoice.JumpToKey(g_authId[client], true);
 
+
+
     int team = GetClientTeam(client);
+
     if (team == CS_TEAM_T) {
+
         g_hKVPlayerChoice.SetString("Team_T", modelPath);
-    } else if (team == CS_TEAM_CT) {
-        g_hKVPlayerChoice.SetString("Team_CT", modelPath);
+
     }
+
+    else if (team == CS_TEAM_CT) {
+
+        g_hKVPlayerChoice.SetString("Team_CT", modelPath);
+
+    }
+
+
 
     g_hKVPlayerChoice.GoBack();
 
+
+
     char mapName[64], filePath[PLATFORM_MAX_PATH];
+
     GetCurrentMap(mapName, sizeof(mapName));
 
+
+
     if (g_cvarMapbased.BoolValue) {
+
         BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/%s_playermodels.ini", mapName);
+
     } else {
+
         BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/skinchooser_playermodels.ini");
+
     }
 
+
+
     g_hKVPlayerChoice.ExportToFile(filePath);
+
 }
+
+
 
 void ApplySavedChoiceIfAny(int client)
+
 {
+
     if (g_hKVPlayerChoice == null || !g_cvarLoadChoice.BoolValue) return;
 
+
+
     CacheClientAuthId(client);
+
     if (!g_hKVPlayerChoice.JumpToKey(g_authId[client])) return;
+
+
 
     char path[PLATFORM_MAX_PATH];
+
     int team = GetClientTeam(client);
 
+
+
     if (team == CS_TEAM_T) {
+
         g_hKVPlayerChoice.GetString("Team_T", path, sizeof(path));
-    } else if (team == CS_TEAM_CT) {
-        g_hKVPlayerChoice.GetString("Team_CT", path, sizeof(path));
-    } else {
-        path[0] = '\0';
+
     }
+
+    else if (team == CS_TEAM_CT) {
+
+        g_hKVPlayerChoice.GetString("Team_CT", path, sizeof(path));
+
+    }
+
+    else {
+
+        path[0] = '\0';
+
+    }
+
     
+
     g_hKVPlayerChoice.GoBack();
+
+
 
     if (path[0] == '\0' || !FileExists(path, true)) {
+
         return; // Нет выбранной модели для применения
+
     }
+
+
 
     // Дополнительная проверка: есть ли у игрока все еще доступ к этой модели?
+
     char groupName[64];
+
     if (FindGroupForModel(path, groupName, sizeof(groupName))) {
+
         g_hKVModels.Rewind();
+
         g_hKVModels.JumpToKey(groupName);
-        char sFlags[32];
-        g_hKVModels.GetString("Admin", sFlags, sizeof(sFlags)); // Ищем ключ "Admin"
+
+                char sFlags[32];
+
+                int iFlags = 0;
+
+                g_hKVModels.GetString("Admin", sFlags, sizeof(sFlags)); // Ищем ключ "Admin"
+
         if (sFlags[0] == '\0') {
+
             g_hKVModels.GetString("Flags", sFlags, sizeof(sFlags), "");
+
         }
+
+
 
         if (sFlags[0] != '\0') {
-            int required = ReadFlagString(sFlags);
-            if (GetUserFlagBits(client) != required) {
+
+            iFlags = ReadFlagString(sFlags);
+
+            if ((GetUserFlagBits(client) & iFlags) != iFlags) {
+
                 return; // Доступ запрещен, модель не применяем
+
             }
+
         }
+
         g_hKVModels.Rewind();
+
     }
+
+
 
     if (!IsModelPrecached(path)) PrecacheModel(path, true);
+
     SetEntityModel(client, path);
+
 }
+
+
 
 /**
+
  * Ищет, к какой группе принадлежит указанный файл модели.
+
  * Необходимо для проверки, есть ли у игрока до сих пор доступ к модели.
+
  */
+
 bool FindGroupForModel(const char[] modelPath, char[] groupBuffer, int bufferSize)
+
 {
+
     if (g_hKVModels == null) return false;
+
     g_hKVModels.Rewind();
+
     if (!g_hKVModels.GotoFirstSubKey()) return false;
 
+
+
     do {
+
         g_hKVModels.GetSectionName(groupBuffer, bufferSize);
+
         if (g_hKVModels.JumpToKey("Team_T", false)) {
+
             if (g_hKVModels.GotoFirstSubKey()) {
+
                 do {
+
                     char path[PLATFORM_MAX_PATH];
+
                     g_hKVModels.GetString("path", path, sizeof(path));
+
                     if (StrEqual(path, modelPath)) {
+
                         g_hKVModels.Rewind();
+
                         return true;
+
                     }
+
                 } while (g_hKVModels.GotoNextKey());
+
                 g_hKVModels.GoBack();
+
             }
+
             g_hKVModels.GoBack();
+
         }
+
         if (g_hKVModels.JumpToKey("Team_CT", false)) {
+
             if (g_hKVModels.GotoFirstSubKey()) {
+
                 do {
+
                     char path[PLATFORM_MAX_PATH];
+
                     g_hKVModels.GetString("path", path, sizeof(path));
+
                     if (StrEqual(path, modelPath)) {
+
                         g_hKVModels.Rewind();
+
                         return true;
+
                     }
+
                 } while (g_hKVModels.GotoNextKey());
+
                 g_hKVModels.GoBack();
+
             }
+
             g_hKVModels.GoBack();
+
         }
+
     } while (g_hKVModels.GotoNextKey());
 
+
+
     g_hKVModels.Rewind();
+
     return false;
+
 }
 
+
+
 void ResetToDefaultModel(int client)
+
 {
+
+    // Устанавливаем модель, которая была у игрока при последнем спавне
+
     if (g_originalModel[client][0] != '\0') {
+
         SetEntityModel(client, g_originalModel[client]);
+
     }
+
+
 
     // Очищаем сохраненный выбор, только если сохранение включено
+
     if (g_hKVPlayerChoice == null || !g_cvarSaveChoice.BoolValue) return;
 
+
+
     CacheClientAuthId(client);
+
     if (!g_hKVPlayerChoice.JumpToKey(g_authId[client])) return;
 
+
+
     int team = GetClientTeam(client);
+
     if (team == CS_TEAM_T) {
+
         g_hKVPlayerChoice.SetString("Team_T", ""); // Очищаем выбор
-    } else if (team == CS_TEAM_CT) {
-        g_hKVPlayerChoice.SetString("Team_CT", ""); // Очищаем выбор
+
     }
+
+    else if (team == CS_TEAM_CT) {
+
+        g_hKVPlayerChoice.SetString("Team_CT", ""); // Очищаем выбор
+
+    }
+
     g_hKVPlayerChoice.GoBack();
 
+
+
     char mapName[64], filePath[PLATFORM_MAX_PATH];
+
     GetCurrentMap(mapName, sizeof(mapName));
 
+
+
     if (g_cvarMapbased.BoolValue) {
+
         BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/%s_playermodels.ini", mapName);
+
     } else {
+
         BuildPath(Path_SM, filePath, sizeof(filePath), "data/skinchooser/skinchooser_playermodels.ini");
+
     }
 
+
+
     g_hKVPlayerChoice.ExportToFile(filePath);
+
 }
 
 
