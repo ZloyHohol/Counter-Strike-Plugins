@@ -1,9 +1,0 @@
-"vertexlitgeneric" 
-{
-$baseTexture "models\player\vad36pirate\tm_pirate_head"
-$bumpmap "models\player\vad36pirate\tm_pirate_head_normal"
-$phongexponenttexture "models\player\vad36pirate\tm_pirate_head_exponent"
-$rimmask 1
-$nodecal 1
-}
-

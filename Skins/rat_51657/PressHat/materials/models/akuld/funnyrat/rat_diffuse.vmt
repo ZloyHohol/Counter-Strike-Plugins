@@ -1,8 +1,0 @@
-"VertexLitGeneric"
-{	
-	"$baseTexture" "models\akuld\funnyrat\Rat_Diffuse"
-	"$bumpmap" "models\akuld\funnyrat\Rat_Normal"
-
-	"$halflambert" "1"
-
-}

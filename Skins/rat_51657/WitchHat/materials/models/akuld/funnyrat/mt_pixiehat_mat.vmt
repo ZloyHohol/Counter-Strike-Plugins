@@ -1,8 +1,0 @@
-"VertexLitGeneric"
-{	
-	"$baseTexture" "models\akuld\funnyrat\mt_Pixiehat_mat"
-	"$bumpmap" "models\akuld\funnyrat\mt_Pixiehat_mat_NRM"
-
-	"$halflambert" "1"
-
-}

@@ -1,9 +1,0 @@
-"vertexlitgeneric"
-{
-$baseTexture "models\player\vad36pirate\tm_pirate_upperbody"
-$bumpmap "models\player\vad36pirate\tm_pirate_upperbody_normal"
-$phongalbedotint 1
-$phongalbedoboost 400
-$phongexponenttexture "models\player\vad36pirate\tm_pirate_upperbody_exponent"
-$rimmask 1
-}

@@ -1,8 +1,0 @@
-"VertexLitGeneric"
-{
-	"$baseTexture" "tlsaudrl2548\BF3\RUSMP/Tex_0040_2"
-	"$bumpmap" "tlsaudrl2548\BF3\RUSMP/Tex_0040_4"
-
-	$nocull 1
-
-}

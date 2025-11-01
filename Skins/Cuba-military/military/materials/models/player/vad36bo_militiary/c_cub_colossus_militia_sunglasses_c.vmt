@@ -1,9 +1,0 @@
-VertexLitGeneric
-{
-$baseTexture "models\player\vad36bo_militiary\c_cub_colossus_militia_sunglasses_c"
-
-$bumpmap "models\player\vad36bo_militiary\c_cub_colossus_militia_sunglasses_n"
-	//
-
-	"$translucent" 1
-}

@@ -1,7 +1,0 @@
-"VertexlitGeneric"
-{
-$baseTexture "models\player\vad36go_fbi\ct_fbi_upperbody"
-$bumpmap "models\player\vad36go_fbi\ct_fbi_upperbody_normal"
-$phongexponenttexture "models\player\vad36go_fbi\ct_fbi_upperbody_exponent"
-$rimmask 1
-}

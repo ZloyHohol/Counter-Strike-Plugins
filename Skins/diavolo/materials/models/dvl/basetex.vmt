@@ -1,6 +1,0 @@
-"VertexlitGeneric"
-{
-	"$basetexture" "models/dvl/baseTex"
-	"$nocull" 1
-	"$alphatest" 1
-}

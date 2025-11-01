@@ -1,8 +1,0 @@
-"VertexLitGeneric"
-{
-$baseTexture "models\player\vad36_professional\tm_Professional_Head_varaintA"
-$bumpmap "models\player\vad36_professional\tm_professional_Head_variantA_normal"
-
-$nodecal 1
-}
-

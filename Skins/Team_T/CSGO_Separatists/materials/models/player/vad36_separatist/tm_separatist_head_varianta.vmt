@@ -1,8 +1,0 @@
-"VertexLitGeneric"
-{
-$baseTexture "models\player\vad36_separatist\tm_separatist_head_varianta"
-$bumpmap "models\player\vad36_separatist\tm_separatist_head_varianta_normal"
-$rimlight 0
-$nodecal 1
-}
-}
