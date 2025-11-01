@@ -15,7 +15,8 @@ ConVar g_hCvarEnabled;
 ConVar g_hCvarImmortalityMode;
 ConVar g_hCvarEnableLogging;
 
-KeyValues g_kvConfig;
+KeyValues g_kvHumans;
+KeyValues g_kvBots;
 
 TopMenu g_hAdminMenu;
 
@@ -51,6 +52,18 @@ public void OnPluginStart()
     }
 
     RegAdminCmd("sm_rha", Command_RHA, ADMFLAG_GENERIC, "RHA admin menu");
+}
+
+public void OnPluginEnd()
+{
+    if (g_kvHumans != null)
+    {
+        delete g_kvHumans;
+    }
+    if (g_kvBots != null)
+    {
+        delete g_kvBots;
+    }
 }
 
 public void OnAllPluginsLoaded()
@@ -183,15 +196,15 @@ public Action Timer_ApplySettings(Handle timer, any userid)
 
 void LoadConfig()
 {
-    char path[PLATFORM_MAX_PATH];
-    BuildPath(Path_SM, path, sizeof(path), "configs/RHA.cfg");
+    // --- Load Humans Config ---
+    char human_path[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, human_path, sizeof(human_path), "configs/RHA_humans.cfg");
 
-    g_kvConfig = new KeyValues("RHA");
-
-    if (!FileExists(path))
+    g_kvHumans = new KeyValues("Groups");
+    if (!FileExists(human_path))
     {
-        KeyValues kv = new KeyValues("RHA");
-        kv.JumpToKey("Human-gamers", true);
+        // Create default RHA_humans.cfg
+        KeyValues kv = new KeyValues("Groups");
         kv.JumpToKey("Guest", true);
         kv.SetString("Flags", "");
         kv.JumpToKey("Team_T", true);
@@ -215,8 +228,23 @@ void LoadConfig()
         kv.SetNum("armor", 100);
         kv.GoBack();
         kv.GoBack();
-        kv.GoBack();
-        kv.JumpToKey("bots", true);
+        kv.ExportToFile(human_path);
+        delete kv;
+    }
+    if (!g_kvHumans.ImportFromFile(human_path))
+    {
+        LogError("Failed to load config file: %s", human_path);
+    }
+
+    // --- Load Bots Config ---
+    char bot_path[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, bot_path, sizeof(bot_path), "configs/RHA_bots.cfg");
+
+    g_kvBots = new KeyValues("Bots");
+    if (!FileExists(bot_path))
+    {
+        // Create default RHA_bots.cfg
+        KeyValues kv = new KeyValues("Bots");
         kv.JumpToKey("Team_T", true);
         kv.SetNum("health", 90);
         kv.SetNum("armor", 50);
@@ -225,75 +253,62 @@ void LoadConfig()
         kv.SetNum("health", 90);
         kv.SetNum("armor", 50);
         kv.GoBack();
-        kv.GoBack();
-        kv.ExportToFile(path);
+        kv.ExportToFile(bot_path);
         delete kv;
-        if (g_hCvarEnableLogging.BoolValue) RHA_LogAction(0, 0, "RHA config not found, created default at %s", path);
     }
-    
-    if (!g_kvConfig.ImportFromFile(path))
+    if (!g_kvBots.ImportFromFile(bot_path))
     {
-        LogError("Failed to load config file: %s", path);
+        LogError("Failed to load config file: %s", bot_path);
     }
 }
 
 KeyValues GetClientGroupSettings(int client, bool isBot)
 {
-    g_kvConfig.Rewind();
     if (isBot)
     {
-        if (g_kvConfig.JumpToKey("bots"))
-        {
-            KeyValues kvBot = new KeyValues("bots");
-            KvCopySubkeys(g_kvConfig, kvBot);
-            g_kvConfig.GoBack();
-            return kvBot;
-        }
-        return null;
+        g_kvBots.Rewind();
+        KeyValues kvBot = new KeyValues("Bots");
+        KvCopySubkeys(g_kvBots, kvBot);
+        return kvBot;
     }
 
-    if (!g_kvConfig.JumpToKey("Human-gamers"))
-    {
-        return null;
-    }
-
+    // Logic for humans
+    g_kvHumans.Rewind();
+    
     KeyValues kvBestGroup = null;
     int bestMatchCount = -1;
 
-    if (g_kvConfig.GotoFirstSubKey(false))
+    if (g_kvHumans.GotoFirstSubKey(false))
     {
         do
         {
             char sGroupName[64];
-            g_kvConfig.GetSectionName(sGroupName, sizeof(sGroupName));
+            g_kvHumans.GetSectionName(sGroupName, sizeof(sGroupName));
             char sFlags[64];
-            g_kvConfig.GetString("Flags", sFlags, sizeof(sFlags), "");
+            g_kvHumans.GetString("Flags", sFlags, sizeof(sFlags), "");
 
-            AdminId id = GetUserAdmin(client);
             int flagsMask = ReadFlagString(sFlags);
+            int playerFlags = GetUserFlagBits(client);
 
-            if (id != INVALID_ADMIN_ID && (GetAdminFlag(id, Admin_Root, Access_Effective) || ((GetUserFlagBits(client) & flagsMask) == flagsMask)))
+            // Check if the player has all the required flags for this group
+            if ((playerFlags & flagsMask) == flagsMask)
             {
                 int currentMatchCount = strlen(sFlags);
+                // If this group requires more flags than the best match so far, it's a better match
                 if (currentMatchCount > bestMatchCount)
                 {
                     bestMatchCount = currentMatchCount;
-                    if (kvBestGroup != null) delete kvBestGroup;
+                    if (kvBestGroup != null) 
+                    {
+                        delete kvBestGroup;
+                    }
                     kvBestGroup = new KeyValues(sGroupName);
-                    KvCopySubkeys(g_kvConfig, kvBestGroup);
+                    KvCopySubkeys(g_kvHumans, kvBestGroup);
                 }
             }
-            else if (strlen(sFlags) == 0 && bestMatchCount < 0)
-            {
-                bestMatchCount = 0;
-                if (kvBestGroup != null) delete kvBestGroup;
-                kvBestGroup = new KeyValues(sGroupName);
-                KvCopySubkeys(g_kvConfig, kvBestGroup);
-            }
-        } while (g_kvConfig.GotoNextKey(false));
+        } while (g_kvHumans.GotoNextKey(false));
     }
 
-    g_kvConfig.GoBack();
     return kvBestGroup;
 }
 
