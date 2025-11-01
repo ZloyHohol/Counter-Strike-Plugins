@@ -298,8 +298,8 @@ KeyValues GetClientGroupSettings(int client, bool isBot)
             int flagsMask = ReadFlagString(sFlags);
             int playerFlags = GetUserFlagBits(client);
 
-            // Check if the player has all the required flags for this group
-            if ((playerFlags & flagsMask) == flagsMask)
+            // Check if the player has at least one of the required flags for this group, or if the group is public
+            if (flagsMask == 0 || (playerFlags & flagsMask) != 0)
             {
                 // If this group's flag value is higher than the best match so far, it's a better match
                 if (flagsMask > bestMatchValue)
