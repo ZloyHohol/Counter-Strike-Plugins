@@ -8,24 +8,36 @@
 #include <easy_hudmessage>
 #include <keyvalues>
 #include <menus>
+#include <adt_trie>
 
-#define PLUGIN_VERSION "1.1"
+#define PLUGIN_VERSION "1.6"
 
 // --- Глобальные переменные ---
 // MVP
 int g_iMVP = -1;
 bool g_bHasVoted[MAXPLAYERS + 1];
 int g_iYesVotes = 0;
+ConVar g_hMVPVoteEnable;
+ConVar g_hMVPVoteAmount;
+ConVar g_hMVPMaxReward;
 
 // Teamkill
+ConVar g_hTeamkillEnable;
 ConVar g_hTeamkillPunishMode;
 ConVar g_hTeamkillForgiveThreshold;
 ConVar g_hTeamDamageMutualThreshold;
+ConVar g_hBotPunishment;
 int g_iTeamKills[MAXPLAYERS + 1];
-int g_iMutualDamage[MAXPLAYERS + 1][MAXPLAYERS + 1];
 ArrayList g_hTeamkillIncidents;
+ArrayList g_hPunishments;
+ConVar g_hPunishmentsFile;
+int g_iTeamkillAttacker[MAXPLAYERS + 1];
+
+// Mutual Damage (sparse structure)
+Handle g_hMutualDamageMap = INVALID_HANDLE;
 
 // Camper
+ConVar g_hAntiCamperEnable;
 ConVar g_hAntiCamperTime;
 float g_vLastPosition[MAXPLAYERS + 1][3];
 int g_iCampingTime[MAXPLAYERS + 1];
@@ -35,6 +47,13 @@ int g_hBeaconSprite;
 
 // Rules
 ConVar g_hFreezeTime;
+ArrayList g_hPlayerRules;
+ArrayList g_hAdminRules;
+ConVar g_hPlayerRulesFile;
+ConVar g_hAdminRulesFile;
+ConVar g_hRulesInterval;
+int g_iRoundCounter = 0;
+Handle g_hRulesTimer = INVALID_HANDLE;
 
 // --- Информация о плагине ---
 public Plugin myinfo =
@@ -52,31 +71,278 @@ public void OnPluginStart()
     LoadTranslations("PlayerRewardAndDiscipline.phrases.txt");
 
     // ConVars
-    g_hTeamkillPunishMode = CreateConVar("sm_teamkill_punish_mode", "2", "0=выкл, 1=автонаказание, 2=голосование жертвы", _, true, 0.0, true, 2.0);
-    g_hTeamkillForgiveThreshold = CreateConVar("sm_teamkill_forgive_threshold", "2", "Сколько тимкиллов нужно, чтобы убийство считалось правосудием", _, true, 1.0);
-    g_hTeamDamageMutualThreshold = CreateConVar("sm_teamdamage_mutual_threshold", "25", "Урон для взаимной агрессии", _, true, 1.0);
+    CreateConVar("sm_prd_version", PLUGIN_VERSION, "Plugin version", FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY);
+    g_hMVPVoteEnable = CreateConVar("sm_prd_mvp_enable", "1", "Enable/disable MVP reward system.", _, true, 0.0, true, 1.0);
+    g_hMVPVoteAmount = CreateConVar("sm_prd_mvp_amount", "1000", "Amount of money per vote for MVP.", _, true, 0.0);
+    g_hMVPMaxReward = CreateConVar("sm_prd_mvp_max_reward", "16000", "Maximum MVP reward.", _, true, 0.0);
 
-    g_hAntiCamperTime = CreateConVar("sm_anticamper_time", "10.0", "Время (сек), после которого игрок считается кемпером", _, true, 5.0);
+    g_hTeamkillEnable = CreateConVar("sm_prd_teamkill_enable", "1", "Enable/disable teamkill punishment system.", _, true, 0.0, true, 1.0);
+    g_hTeamkillPunishMode = CreateConVar("sm_teamkill_punish_mode", "2", "0=off, 1=auto-punish, 2=victim vote", _, true, 0.0, true, 2.0);
+    g_hTeamkillForgiveThreshold = CreateConVar("sm_teamkill_forgive_threshold", "2", "How many teamkills are needed for it to be considered justice.", _, true, 1.0);
+    g_hTeamDamageMutualThreshold = CreateConVar("sm_teamdamage_mutual_threshold", "25", "Damage for mutual aggression.", _, true, 1.0);
+    g_hBotPunishment = CreateConVar("sm_prd_bot_punishment", "0", "Enable/disable punishments for bots.", _, true, 0.0, true, 1.0);
+
+    g_hAntiCamperEnable = CreateConVar("sm_prd_anticamper_enable", "1", "Enable/disable anti-camper system.", _, true, 0.0, true, 1.0);
+    g_hAntiCamperTime = CreateConVar("sm_anticamper_time", "10.0", "Time (sec) after which a player is considered a camper.", _, true, 5.0);
+
+    g_hPlayerRulesFile = CreateConVar("sm_prd_player_rules_file", "configs/prd_rules_players.txt", "File with rules for players.");
+    g_hAdminRulesFile = CreateConVar("sm_prd_admin_rules_file", "configs/prd_rules_admins.txt", "File with rules for admins.");
+    g_hRulesInterval = CreateConVar("sm_prd_rules_interval", "1", "How many rounds to wait before showing the next rule.", _, true, 1.0);
+    g_hPunishmentsFile = CreateConVar("sm_prd_punishments_file", "configs/prd_punishments.cfg", "File with teamkill punishments.");
 
     g_hFreezeTime = FindConVar("mp_freezetime");
 
-    g_hTeamkillIncidents = new ArrayList();
+    // Initialize arrays and handles
+    if (g_hTeamkillIncidents == null) g_hTeamkillIncidents = new ArrayList();
+    if (g_hPunishments == null) g_hPunishments = new ArrayList(8);
+    if (g_hPlayerRules == null) g_hPlayerRules = new ArrayList(256);
+    if (g_hAdminRules == null) g_hAdminRules = new ArrayList(256);
+    for (int i = 0; i <= MaxClients; i++)
+    {
+        g_hBeaconTimers[i] = INVALID_HANDLE;
+    }
 
-    // Хуки
+    InitMutualDamage();
+
+    RegAdminCmd("sm_prd", Command_AdminMenu, ADMFLAG_CONFIG, "Open the Player Reward and Discipline admin menu.");
+
+    // Hooks
     HookEvent("round_start", Event_RoundStart);
     HookEvent("player_spawn", Event_PlayerSpawn);
     HookEvent("round_mvp", Event_RoundMVP);
     HookEvent("player_death", Event_PlayerDeath);
     HookEvent("player_hurt", Event_PlayerHurt, EventHookMode_Pre);
+
+    LoadRules();
+    LoadPunishments();
+    CreateOrRestartRulesTimer();
 }
+
+public void OnPluginEnd()
+{
+    StopRulesTimer();
+
+    // Kill all beacon timers
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (g_hBeaconTimers[i] != INVALID_HANDLE)
+        {
+            KillTimer(g_hBeaconTimers[i]);
+            g_hBeaconTimers[i] = INVALID_HANDLE;
+        }
+    }
+
+    // Clean KeyValues in punishments ArrayList
+    if (g_hPunishments != null)
+    {
+        for (int i = 0; i < g_hPunishments.Length; i++)
+        {
+            KeyValues kv = g_hPunishments.Get(i);
+            if (kv != null) delete kv;
+        }
+        g_hPunishments.Clear();
+        delete g_hPunishments;
+        g_hPunishments = null;
+    }
+
+    // Clean other arrays
+    if (g_hTeamkillIncidents != null) { g_hTeamkillIncidents.Clear(); delete g_hTeamkillIncidents; g_hTeamkillIncidents = null; }
+    if (g_hPlayerRules != null)  { g_hPlayerRules.Clear();  delete g_hPlayerRules;  g_hPlayerRules = null; }
+    if (g_hAdminRules != null)   { g_hAdminRules.Clear();   delete g_hAdminRules;   g_hAdminRules = null; }
+
+    // Destroy mutual damage map
+    DestroyMutualDamage();
+}
+
+public void OnMapStart()
+{
+    PrecacheAndAddSound("plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav");
+    g_hBeaconSprite = PrecacheModel("sprites/laserbeam.vmt");
+    // Перезагрузки конфигов
+    LoadRules();
+    LoadPunishments();
+
+    // Recreate rules timer (safe)
+    CreateOrRestartRulesTimer();
+}
+
+// --- Rules timer helpers ---
+void CreateOrRestartRulesTimer()
+{
+    if (g_hRulesTimer != INVALID_HANDLE)
+    {
+        KillTimer(g_hRulesTimer);
+        g_hRulesTimer = INVALID_HANDLE;
+    }
+    g_hRulesTimer = CreateTimer(1.0, Timer_DisplayRules, _, TIMER_REPEAT);
+}
+
+void StopRulesTimer()
+{
+    if (g_hRulesTimer != INVALID_HANDLE)
+    {
+        KillTimer(g_hRulesTimer);
+        g_hRulesTimer = INVALID_HANDLE;
+    }
+}
+
+// --- Mutual Damage (Trie) functions ---
+void InitMutualDamage()
+{
+    if (g_hMutualDamageMap != INVALID_HANDLE) CloseHandle(g_hMutualDamageMap);
+    g_hMutualDamageMap = CreateTrie();
+}
+
+void StoreMutualDamageAdd(int attacker, int victim, int damage)
+{
+    if (!IsValidClient(attacker) || !IsValidClient(victim)) return;
+    char key[32];
+    Format(key, sizeof(key), "%d:%d", attacker, victim);
+
+    char sval[32];
+    StringMap map = view_as<StringMap>(g_hMutualDamageMap);
+    if (map.GetString(key, sval, sizeof(sval)))
+    {
+        int cur = StringToInt(sval);
+        cur += damage;
+        IntToString(cur, sval, sizeof(sval));
+        map.SetString(key, sval);
+    }
+    else
+    {
+        IntToString(damage, sval, sizeof(sval));
+        map.SetString(key, sval);
+    }
+}
+
+int GetMutualDamage(int attacker, int victim)
+{
+    if (g_hMutualDamageMap == INVALID_HANDLE) return 0;
+    char key[32], sval[32];
+    Format(key, sizeof(key), "%d:%d", attacker, victim);
+    StringMap map = view_as<StringMap>(g_hMutualDamageMap);
+    if (map.GetString(key, sval, sizeof(sval)))
+        return StringToInt(sval);
+    return 0;
+}
+
+void ClearMutualDamageAll()
+{
+    if (g_hMutualDamageMap != INVALID_HANDLE)
+    {
+        CloseHandle(g_hMutualDamageMap);
+        g_hMutualDamageMap = INVALID_HANDLE;
+    }
+    InitMutualDamage();
+}
+
+void DestroyMutualDamage()
+{
+    if (g_hMutualDamageMap != INVALID_HANDLE)
+    {
+        CloseHandle(g_hMutualDamageMap);
+        g_hMutualDamageMap = INVALID_HANDLE;
+    }
+}
+
+// --- Load Rules ---
+void LoadRules()
+{
+    g_hPlayerRules.Clear();
+    g_hAdminRules.Clear();
+
+    char path[PLATFORM_MAX_PATH];
+    g_hPlayerRulesFile.GetString(path, sizeof(path));
+
+    char file_path[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, file_path, sizeof(file_path), path);
+
+    File file = OpenFile(file_path, "r");
+    if (file != null)
+    {
+        char line[256];
+        while (file.ReadLine(line, sizeof(line)))
+        {
+            TrimString(line);
+            if (line[0] != 0)
+            {
+                g_hPlayerRules.PushString(line);
+            }
+        }
+        delete file;
+    }
+
+    g_hAdminRulesFile.GetString(path, sizeof(path));
+    BuildPath(Path_SM, file_path, sizeof(file_path), path);
+
+    file = OpenFile(file_path, "r");
+    if (file != null)
+    {
+        char line[256];
+        while (file.ReadLine(line, sizeof(line)))
+        {
+            TrimString(line);
+            if (line[0] != 0)
+            {
+                g_hAdminRules.PushString(line);
+            }
+        }
+        delete file;
+    }
+}
+
+// --- Load Punishments ---
+void LoadPunishments()
+{
+    // Clear existing punishments and their KeyValues handles
+    if (g_hPunishments != null)
+    {
+        for (int i = 0; i < g_hPunishments.Length; i++)
+        {
+            KeyValues kv = g_hPunishments.Get(i);
+            if (kv != null) delete kv;
+        }
+        g_hPunishments.Clear();
+    }
+
+    char path[PLATFORM_MAX_PATH];
+    g_hPunishmentsFile.GetString(path, sizeof(path));
+    char file_path[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, file_path, sizeof(file_path), path);
+
+    KeyValues kv = new KeyValues("Punishments");
+    if (kv.ImportFromFile(file_path))
+    {
+        if (kv.GotoFirstSubKey())
+        {
+            do
+            {
+                char name[32];
+                kv.GetSectionName(name, sizeof(name));
+                KeyValues punishment = new KeyValues(name);
+                KvCopySubkeys(kv, punishment);
+                g_hPunishments.Push(punishment);
+            } while (kv.GotoNextKey());
+        }
+    }
+    delete kv;
+}
+
+
 // --- Обработка тимкиллов ---
 
 public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
+    if (!g_hTeamkillEnable.BoolValue)
+        return Plugin_Continue;
+
     int attacker = GetClientOfUserId(event.GetInt("attacker"));
     int victim   = GetClientOfUserId(event.GetInt("userid"));
 
-    if (attacker == 0 || victim == 0 || attacker == victim)
+    if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
+        return Plugin_Continue;
+
+    if (IsFakeClient(attacker) && !g_hBotPunishment.BoolValue)
         return Plugin_Continue;
 
     if (GetClientTeam(attacker) == GetClientTeam(victim))
@@ -89,7 +355,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
         }
 
         // --- Проверка "Взаимная агрессия" ---
-        if (g_iMutualDamage[victim][attacker] >= g_hTeamDamageMutualThreshold.IntValue)
+        int mutual = GetMutualDamage(victim, attacker);
+        if (mutual >= g_hTeamDamageMutualThreshold.IntValue)
         {
             g_iTeamKills[attacker]++;
             CPrintToChatAll("%t", "Teamkill_Mutual", attacker, victim);
@@ -109,8 +376,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
         else if (punishMode == 2)
         {
             KeyValues kv = new KeyValues("TeamkillIncident");
-            kv.SetInt("victim_userid", GetClientUserId(victim));
-            kv.SetInt("attacker_userid", GetClientUserId(attacker));
+            kv.SetNum("victim_userid", GetClientUserId(victim));
+            kv.SetNum("attacker_userid", GetClientUserId(attacker));
             g_hTeamkillIncidents.Push(kv);
 
             CPrintToChat(victim, "%t", "Teamkill_VictimNotice", attacker);
@@ -122,16 +389,19 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 
 public Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast)
 {
+    if (!g_hTeamkillEnable.BoolValue)
+        return Plugin_Continue;
+
     int attacker = GetClientOfUserId(event.GetInt("attacker"));
     int victim   = GetClientOfUserId(event.GetInt("userid"));
 
-    if (attacker == 0 || victim == 0 || attacker == victim)
+    if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
         return Plugin_Continue;
 
     if (GetClientTeam(attacker) == GetClientTeam(victim))
     {
         int damage = event.GetInt("damage");
-        g_iMutualDamage[attacker][victim] += damage;
+        StoreMutualDamageAdd(attacker, victim, damage);
     }
 
     return Plugin_Continue;
@@ -139,52 +409,71 @@ public Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcas
 // --- Начало раунда ---
 public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
-    // Сброс счётчиков
+    g_iRoundCounter++;
+
+    // reset per-round counters
     for (int i = 1; i <= MaxClients; i++)
     {
         g_iTeamKills[i] = 0;
-        for (int j = 1; j <= MaxClients; j++)
-        {
-            g_iMutualDamage[i][j] = 0;
-        }
+        g_bHasVoted[i] = false; // Reset MVP votes
     }
+    g_iYesVotes = 0; // Reset MVP votes
+    g_iMVP = -1; // Reset MVP
 
-    // Обработка инцидентов тимкилла
-    if (g_hTeamkillPunishMode.IntValue == 2)
+    // clear mutual damage
+    ClearMutualDamageAll();
+
+    // process incidents by snapshotting list
+    if (g_hTeamkillIncidents != null && g_hTeamkillIncidents.Length > 0 && g_hTeamkillPunishMode.IntValue == 2)
     {
-        for (int i = 0; i < g_hTeamkillIncidents.Length; i++)
+        int len = g_hTeamkillIncidents.Length;
+        ArrayList incidentsSnapshot = new ArrayList();
+        for (int idx = 0; idx < len; idx++)
         {
-            Handle h = g_hTeamkillIncidents.Get(i);
-            KeyValues kv = KeyValues.FromHandle(h);
+            KeyValues kv = g_hTeamkillIncidents.Get(idx);
+            if (kv != null) incidentsSnapshot.Push(kv);
+        }
+        g_hTeamkillIncidents.Clear(); // Clear original list after snapshotting
 
-            int victim_userid   = kv.GetInt("victim_userid");
-            int attacker_userid = kv.GetInt("attacker_userid");
+        for (int idx = 0; idx < incidentsSnapshot.Length; idx++)
+        {
+            KeyValues kv = incidentsSnapshot.Get(idx);
+            if (kv == null) continue;
 
-            int victim   = GetClientOfUserId(victim_userid);
+            int victim_userid = kv.GetNum("victim_userid");
+            int attacker_userid = kv.GetNum("attacker_userid");
+
+            int victim = GetClientOfUserId(victim_userid);
             int attacker = GetClientOfUserId(attacker_userid);
 
-            if (victim != 0 && attacker != 0 && IsClientInGame(victim) && IsClientInGame(attacker))
+            if (IsValidClient(victim) && IsValidClient(attacker) && attacker != 0 && victim != 0)
             {
                 char sName[MAX_NAME_LENGTH];
                 GetClientName(attacker, sName, sizeof(sName));
 
                 Menu menu = new Menu(MenuHandler_TeamkillPunishment);
                 menu.SetTitle("%t", "MVP_MenuTitle", sName);
-                menu.AddItem("forgive", "%t", "MVP_No"); // переводы
-                menu.AddItem("slay",    "%t", "Teamkill_Slay");
-                menu.AddItem("burn",    "%t", "Teamkill_Burn");
-                menu.AddItem("slap",    "%t", "Teamkill_Slap");
+                menu.AddItem("forgive", "Forgive");
 
-                menu.SetData(attacker_userid);
+                for (int j = 0; j < g_hPunishments.Length; j++)
+                {
+                    KeyValues p = g_hPunishments.Get(j);
+                    char p_name[32], p_translation[64];
+                    p.GetSectionName(p_name, sizeof(p_name));
+                    p.GetString("translation", p_translation, sizeof(p_translation));
+                    menu.AddItem(p_name, p_translation);
+                }
+
+                g_iTeamkillAttacker[victim] = attacker; // Store attacker for menu handler
                 menu.Display(victim, 15);
             }
-            delete kv;
+            delete kv; // Delete KeyValues handle after processing
         }
+        delete incidentsSnapshot; // Delete the snapshot ArrayList
     }
-    g_hTeamkillIncidents.Clear();
 
     // Голосование за MVP
-    if (g_iMVP != -1 && IsClientInGame(g_iMVP))
+    if (g_hMVPVoteEnable.BoolValue && g_iMVP != -1 && IsValidClient(g_iMVP))
     {
         int team = GetClientTeam(g_iMVP);
         char sMVPName[MAX_NAME_LENGTH];
@@ -192,20 +481,17 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
 
         Menu menu = new Menu(MenuHandler_MVPVote);
         menu.SetTitle("%t", "MVP_MenuTitle", sMVPName);
-        menu.AddItem("yes", "%t", "MVP_Yes");
-        menu.AddItem("no",  "%t", "MVP_No");
+        menu.AddItem("yes", "Yes");
+        menu.AddItem("no",  "No");
 
         for (int i = 1; i <= MaxClients; i++)
         {
-            if (IsClientInGame(i) && GetClientTeam(i) == team)
+            if (IsValidClient(i) && GetClientTeam(i) == team)
             {
                 menu.Display(i, 15);
             }
         }
     }
-
-    // Показ правил
-    CreateTimer(1.0, Timer_DisplayRules, _, TIMER_REPEAT);
 
     return Plugin_Continue;
 }
@@ -215,12 +501,13 @@ public int MenuHandler_TeamkillPunishment(Menu menu, MenuAction action, int clie
 {
     if (action == MenuAction_Select)
     {
-        int attacker_userid = menu.GetData();
-        int attacker = GetClientOfUserId(attacker_userid);
+        if (!IsValidClient(client)) return 0;
 
-        if (attacker == 0 || !IsClientInGame(attacker))
+        int attacker = g_iTeamkillAttacker[client];
+
+        if (!IsValidClient(attacker))
         {
-            CPrintToChat(client, "{red}[Сервер]{default} Агрессор покинул сервер.");
+            CPrintToChat(client, "{red}[Server]{default} The aggressor has left the server.");
             return 0;
         }
 
@@ -231,25 +518,31 @@ public int MenuHandler_TeamkillPunishment(Menu menu, MenuAction action, int clie
         {
             CPrintToChatAll("%t", "Teamkill_Forgive", client, attacker);
         }
-        else if (StrEqual(info, "slay"))
+        else
         {
-            ForcePlayerSuicide(attacker);
-            CPrintToChatAll("%t", "Teamkill_Slay", client, attacker);
-        }
-        else if (StrEqual(info, "burn"))
-        {
-            IgniteEntity(attacker, 5.0);
-            CPrintToChatAll("%t", "Teamkill_Burn", client, attacker);
-        }
-        else if (StrEqual(info, "slap"))
-        {
-            SlapPlayer(attacker, 10, false);
-            CPrintToChatAll("%t", "Teamkill_Slap", client, attacker);
+            for (int i = 0; i < g_hPunishments.Length; i++)
+            {
+                KeyValues p = g_hPunishments.Get(i);
+                char p_name[32];
+                p.GetSectionName(p_name, sizeof(p_name));
+                if (StrEqual(info, p_name))
+                {
+                    char command[256], translation[64];
+                    p.GetString("command", command, sizeof(command));
+                    p.GetString("translation", translation, sizeof(translation));
+                    char formatted_command[256];
+                    FormatEx(formatted_command, sizeof(formatted_command), command, attacker);
+                    ServerCommand(formatted_command);
+                    CPrintToChatAll("%t", translation, client, attacker);
+                    break;
+                }
+            }
         }
     }
     else if (action == MenuAction_End)
     {
         delete menu;
+        g_iTeamkillAttacker[client] = 0; // Clear attacker data
     }
     return 0;
 }
@@ -258,23 +551,39 @@ public int MenuHandler_TeamkillPunishment(Menu menu, MenuAction action, int clie
 public Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
     int client = GetClientOfUserId(event.GetInt("userid"));
+    if (!IsValidClient(client)) return Plugin_Continue;
 
     g_iCampingTime[client] = 0;
     g_bIsCamping[client] = false;
-    if (g_hBeaconTimers[client] != null)
+    if (g_hBeaconTimers[client] != INVALID_HANDLE)
     {
         KillTimer(g_hBeaconTimers[client]);
-        g_hBeaconTimers[client] = null;
+        g_hBeaconTimers[client] = INVALID_HANDLE;
     }
 
-    CreateTimer(1.0, Timer_CheckCamper, GetClientUserId(client), TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+    if (g_hAntiCamperEnable.BoolValue)
+        g_hBeaconTimers[client] = CreateTimer(1.0, Timer_CheckCamper, GetClientUserId(client), TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
     return Plugin_Continue;
+}
+
+public void OnClientDisconnect(int client)
+{
+    if (IsValidClient(client))
+    {
+        if (g_hBeaconTimers[client] != INVALID_HANDLE)
+        {
+            KillTimer(g_hBeaconTimers[client]);
+            g_hBeaconTimers[client] = INVALID_HANDLE;
+        }
+        g_iTeamkillAttacker[client] = 0; // Clear attacker data on disconnect
+    }
 }
 
 // --- MVP ---
 public Action Event_RoundMVP(Event event, const char[] name, bool dontBroadcast)
 {
-    g_iMVP = GetClientOfUserId(event.GetInt("userid"));
+    if (g_hMVPVoteEnable.BoolValue)
+        g_iMVP = GetClientOfUserId(event.GetInt("userid"));
     return Plugin_Continue;
 }
 // --- Меню голосования за MVP ---
@@ -282,6 +591,7 @@ public int MenuHandler_MVPVote(Menu menu, MenuAction action, int client, int ite
 {
     if (action == MenuAction_Select)
     {
+        if (!IsValidClient(client)) return 0;
         if (g_bHasVoted[client])
             return 0;
 
@@ -295,21 +605,28 @@ public int MenuHandler_MVPVote(Menu menu, MenuAction action, int client, int ite
     }
     else if (action == MenuAction_End)
     {
-        if (g_iMVP != -1 && IsClientInGame(g_iMVP))
+        if (g_iMVP != -1 && IsValidClient(g_iMVP) && g_hMVPVoteEnable.BoolValue)
         {
             int team = GetClientTeam(g_iMVP);
             int bot_count = 0;
             for (int i = 1; i <= MaxClients; i++)
             {
-                if (IsClientInGame(i) && GetClientTeam(i) == team && IsFakeClient(i))
+                if (IsValidClient(i) && GetClientTeam(i) == team && IsFakeClient(i))
                     bot_count++;
             }
 
-            int reward = (g_iYesVotes + bot_count) * 1000;
+            int reward = (g_iYesVotes + bot_count) * g_hMVPVoteAmount.IntValue;
+            if (reward > g_hMVPMaxReward.IntValue)
+            {
+                reward = g_hMVPMaxReward.IntValue;
+            }
+
             if (reward > 0)
             {
                 int money = GetEntProp(g_iMVP, Prop_Send, "m_iAccount");
-                SetEntProp(g_iMVP, Prop_Send, "m_iAccount", money + reward);
+                int newMoney = money + reward;
+                if (newMoney > 16000) newMoney = 16000;
+                SetEntProp(g_iMVP, Prop_Send, "m_iAccount", newMoney);
                 CPrintToChat(g_iMVP, "%t", "MVP_Reward", reward);
             }
         }
@@ -328,7 +645,7 @@ public int MenuHandler_MVPVote(Menu menu, MenuAction action, int client, int ite
 public Action Timer_CheckCamper(Handle timer, any userid)
 {
     int client = GetClientOfUserId(userid);
-    if (client == 0 || !IsClientInGame(client) || !IsPlayerAlive(client))
+    if (!IsValidClient(client) || !IsPlayerAlive(client))
         return Plugin_Stop;
 
     AdminId admin = GetUserAdmin(client);
@@ -345,6 +662,7 @@ public Action Timer_CheckCamper(Handle timer, any userid)
         {
             g_bIsCamping[client] = true;
             EmitSoundToAll("plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav", client);
+            if (g_hBeaconTimers[client] != INVALID_HANDLE) KillTimer(g_hBeaconTimers[client]);
             g_hBeaconTimers[client] = CreateTimer(1.0, Timer_DrawBeacon, GetClientUserId(client), TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
         }
     }
@@ -355,10 +673,10 @@ public Action Timer_CheckCamper(Handle timer, any userid)
         {
             g_bIsCamping[client] = false;
             StopSound(client, SNDCHAN_AUTO, "plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav");
-            if (g_hBeaconTimers[client] != null)
+            if (g_hBeaconTimers[client] != INVALID_HANDLE)
             {
                 KillTimer(g_hBeaconTimers[client]);
-                g_hBeaconTimers[client] = null;
+                g_hBeaconTimers[client] = INVALID_HANDLE;
             }
         }
     }
@@ -371,7 +689,7 @@ public Action Timer_CheckCamper(Handle timer, any userid)
 public Action Timer_DrawBeacon(Handle timer, any userid)
 {
     int client = GetClientOfUserId(userid);
-    if (client == 0 || !IsClientInGame(client) || !IsPlayerAlive(client))
+    if (!IsValidClient(client) || !IsPlayerAlive(client))
         return Plugin_Stop;
 
     float origin[3];
@@ -390,27 +708,98 @@ public Action Timer_DisplayRules(Handle timer)
     if (g_hFreezeTime != null && GetGameTime() > g_hFreezeTime.FloatValue)
         return Plugin_Stop;
 
-    char rules[256];
-    Format(rules, sizeof(rules), "%t", "Rules_Message");
+    if (g_hPlayerRules.Length == 0 && g_hAdminRules.Length == 0) return Plugin_Continue;
+
+    if (g_iRoundCounter % g_hRulesInterval.IntValue != 0)
+        return Plugin_Continue;
+
+    int player_rule_index = (g_hPlayerRules.Length > 0) ? (g_iRoundCounter / g_hRulesInterval.IntValue) % g_hPlayerRules.Length : -1;
+    int admin_rule_index = (g_hAdminRules.Length > 0) ? (g_iRoundCounter / g_hRulesInterval.IntValue) % g_hAdminRules.Length : -1;
+
+    char player_rule[256];
+    if (player_rule_index != -1) g_hPlayerRules.GetString(player_rule_index, player_rule, sizeof(player_rule));
+
+    char admin_rule[256];
+    if (admin_rule_index != -1) g_hAdminRules.GetString(admin_rule_index, admin_rule, sizeof(admin_rule));
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (IsClientInGame(i))
+        if (IsValidClient(i))
         {
-            SendHudMessage(i, 3, -1.0, 0.25,
-                           0xFFFF00FF, 0xFFFFFFFF, 0,
-                           0.5, 0.5, 3.0, 0.0,
-                           rules);
+            AdminId admin = GetUserAdmin(i);
+            if (admin != INVALID_ADMIN_ID && (GetAdminFlags(admin, Access_Effective) & ADMFLAG_ROOT))
+            {
+                if (admin_rule_index != -1) SendHudMessage(i, 4, -1.0, 0.25,
+                               0xFFFF00FF, 0xFFFFFFFF, 0,
+                               0.5, 0.5, 3.0, 0.0,
+                               admin_rule);
+            }
+            else
+            {
+                if (player_rule_index != -1) SendHudMessage(i, 4, -1.0, 0.25,
+                               0xFFFF00FF, 0xFFFFFFFF, 0,
+                               0.5, 0.5, 3.0, 0.0,
+                               player_rule);
+            }
         }
     }
     return Plugin_Continue;
 }
-// --- OnMapStart: прелоад ресурсов ---
-public void OnMapStart()
+
+// --- Admin Menu ---
+public Action Command_AdminMenu(int client, int args)
 {
-    PrecacheAndAddSound("plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav");
-    g_hBeaconSprite = PrecacheModel("sprites/laserbeam.vmt");
+    if (!IsValidClient(client)) return Plugin_Handled;
+    AdminMenu(client);
+    return Plugin_Handled;
 }
+
+void AdminMenu(int client)
+{
+    Menu menu = new Menu(AdminMenuHandler);
+    menu.SetTitle("PRD Admin Menu");
+
+    menu.AddItem("mvp", g_hMVPVoteEnable.BoolValue ? "MVP Rewards (On)" : "MVP Rewards (Off)");
+    menu.AddItem("teamkill", g_hTeamkillEnable.BoolValue ? "Teamkill Punish (On)" : "Teamkill Punish (Off)");
+    menu.AddItem("camper", g_hAntiCamperEnable.BoolValue ? "Anti-Camper (On)" : "Anti-Camper (Off)");
+
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int AdminMenuHandler(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_Select)
+    {
+        if (!IsValidClient(client)) return 0;
+
+        char info[32];
+        menu.GetItem(item, info, sizeof(info));
+
+        if (StrEqual(info, "mvp"))
+        {
+            g_hMVPVoteEnable.SetBool(!g_hMVPVoteEnable.BoolValue);
+            AdminMenu(client);
+        }
+        else if (StrEqual(info, "teamkill"))
+        {
+            g_hTeamkillEnable.SetBool(!g_hTeamkillEnable.BoolValue);
+            AdminMenu(client);
+        }
+        else if (StrEqual(info, "camper"))
+        {
+            g_hAntiCamperEnable.SetBool(!g_hAntiCamperEnable.BoolValue);
+            AdminMenu(client);
+        }
+    }
+    else if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+    return 0;
+}
+
+
+
 
 // --- Утилиты ---
 
@@ -432,4 +821,9 @@ bool PrecacheAndAddSound(const char[] relPath)
     AddFileToDownloadsTable(fullPath);
     PrecacheSound(relPath, true);
     return true;
+}
+
+stock bool IsValidClient(int client)
+{
+    return (client > 0 && client <= MaxClients && IsClientInGame(client));
 }
