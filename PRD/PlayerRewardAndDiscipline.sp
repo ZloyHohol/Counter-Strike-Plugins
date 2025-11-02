@@ -21,6 +21,16 @@ ConVar g_hMVPVoteEnable;
 ConVar g_hMVPVoteAmount;
 ConVar g_hMVPMaxReward;
 
+struct PlayerStats
+{
+    int kills;
+    float last_kill_time;
+}
+PlayerStats g_PlayerStats[MAXPLAYERS + 1];
+int g_iHostagesRemaining = 0;
+int g_iBombPlanter = -1;
+
+
 // Teamkill
 ConVar g_hTeamkillEnable;
 ConVar g_hTeamkillPunishMode;
@@ -109,9 +119,13 @@ public void OnPluginStart()
     // Hooks
     HookEvent("round_start", Event_RoundStart);
     HookEvent("player_spawn", Event_PlayerSpawn);
-    HookEvent("round_mvp", Event_RoundMVP);
+    HookEvent("round_end", Event_OnRoundEnd);
     HookEvent("player_death", Event_PlayerDeath);
     HookEvent("player_hurt", Event_PlayerHurt, EventHookMode_Pre);
+    HookEvent("bomb_defused", Event_BombDefused);
+    HookEvent("bomb_planted", Event_BombPlanted);
+    HookEvent("hostage_rescued", Event_HostageRescued);
+    HookEvent("hostage_follows", Event_HostageFollows);
 
     LoadRules();
     LoadPunishments();
@@ -383,6 +397,11 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
             CPrintToChat(victim, "%t", "Teamkill_VictimNotice", attacker);
         }
     }
+    else
+    {
+        g_PlayerStats[attacker].kills++;
+        g_PlayerStats[attacker].last_kill_time = GetGameTime();
+    }
 
     return Plugin_Continue;
 }
@@ -411,14 +430,29 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
 {
     g_iRoundCounter++;
 
+    g_iMVP = -1; // Reset MVP
+    g_iBombPlanter = -1; // Reset bomb planter
+
     // reset per-round counters
     for (int i = 1; i <= MaxClients; i++)
     {
         g_iTeamKills[i] = 0;
         g_bHasVoted[i] = false; // Reset MVP votes
+        g_PlayerStats[i].kills = 0;
+        g_PlayerStats[i].last_kill_time = 0.0;
+        g_iMVP_Points[i] = 0;
     }
-    g_iYesVotes = 0; // Reset MVP votes
-    g_iMVP = -1; // Reset MVP
+
+    // Get hostage count
+    g_iHostagesRemaining = 0;
+    int maxEntities = GetMaxEntities();
+    for (int i = 1; i <= maxEntities; i++)
+    {
+        if (IsValidEdict(i) && StrEqual(GetEdictClassname(i), "hostage_entity"))
+        {
+            g_iHostagesRemaining++;
+        }
+    }
 
     // clear mutual damage
     ClearMutualDamageAll();
@@ -579,14 +613,82 @@ public void OnClientDisconnect(int client)
     }
 }
 
-// --- MVP ---
-public Action Event_RoundMVP(Event event, const char[] name, bool dontBroadcast)
+public Action Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 {
-    if (g_hMVPVoteEnable.BoolValue)
-        g_iMVP = GetClientOfUserId(event.GetInt("userid"));
+    if (g_iMVP == -1) // If no objective-based MVP was set
+    {
+        int reason = event.GetInt("reason");
+        if (reason == 9) // CSRoundEnd_Bomb - Bomb exploded
+        {
+            if (g_iBombPlanter != -1 && IsValidClient(g_iBombPlanter))
+            {
+                g_iMVP = g_iBombPlanter;
+            }
+        }
+        else
+        {
+            int max_kills = 0;
+            int mvp = 0;
+            float earliest_kill_time = 999999.0;
+
+            for(int i = 1; i <= MaxClients; i++)
+            {
+                if(IsValidClient(i) && g_PlayerStats[i].kills > 0)
+                {
+                    if (g_PlayerStats[i].kills > max_kills)
+                    {
+                        max_kills = g_PlayerStats[i].kills;
+                        mvp = i;
+                        earliest_kill_time = g_PlayerStats[i].last_kill_time;
+                    }
+                    else if (g_PlayerStats[i].kills == max_kills)
+                    {
+                        if (g_PlayerStats[i].last_kill_time < earliest_kill_time)
+                        {
+                            mvp = i;
+                            earliest_kill_time = g_PlayerStats[i].last_kill_time;
+                        }
+                    }
+                }
+            }
+            if(mvp > 0 && IsValidClient(mvp))
+            {
+                g_iMVP = mvp;
+            }
+        }
+    }
     return Plugin_Continue;
 }
-// --- Меню голосования за MVP ---
+
+// --- MVP ---
+        
+        public void Event_BombPlanted(Event event, const char[] name, bool dontBroadcast)
+        {
+            int planter = GetClientOfUserId(event.GetInt("userid"));
+            g_iBombPlanter = planter;
+            g_iMVP_Points[planter] += 5;
+        }        
+        public void Event_BombDefused(Event event, const char[] name, bool dontBroadcast)
+        {
+            int defuser = GetClientOfUserId(event.GetInt("userid"));
+            g_iMVP_Points[defuser] += 10;
+            g_iMVP = defuser;
+        }        
+        public void Event_HostageFollows(Event event, const char[] name, bool dontBroadcast)
+        {
+            // This event is fired when a player takes a hostage.
+            // We don't need to do anything here, but the event is hooked.
+        }
+        
+        public void Event_HostageRescued(Event event, const char[] name, bool dontBroadcast)
+        {
+            g_iHostagesRemaining--;
+            if (g_iHostagesRemaining == 0)
+            {
+                int rescuer = GetClientOfUserId(event.GetInt("userid"));
+                g_iMVP = rescuer;
+            }
+        }// --- Меню голосования за MVP ---
 public int MenuHandler_MVPVote(Menu menu, MenuAction action, int client, int item)
 {
     if (action == MenuAction_Select)
