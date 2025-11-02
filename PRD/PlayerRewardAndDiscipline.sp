@@ -662,7 +662,11 @@ public Action Timer_CheckCamper(Handle timer, any userid)
         {
             g_bIsCamping[client] = true;
             EmitSoundToAll("plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav", client);
-            if (g_hBeaconTimers[client] != INVALID_HANDLE) KillTimer(g_hBeaconTimers[client]);
+            if (g_hBeaconTimers[client] != INVALID_HANDLE)
+            {
+                KillTimer(g_hBeaconTimers[client]);
+                g_hBeaconTimers[client] = INVALID_HANDLE;
+            }
             g_hBeaconTimers[client] = CreateTimer(1.0, Timer_DrawBeacon, GetClientUserId(client), TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
         }
     }
@@ -690,7 +694,10 @@ public Action Timer_DrawBeacon(Handle timer, any userid)
 {
     int client = GetClientOfUserId(userid);
     if (!IsValidClient(client) || !IsPlayerAlive(client))
+    {
+        g_hBeaconTimers[client] = INVALID_HANDLE;
         return Plugin_Stop;
+    }
 
     float origin[3];
     GetClientAbsOrigin(client, origin);
