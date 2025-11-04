@@ -15,7 +15,7 @@ This SourceMod plugin, `AmmoControl_v2`, provides enhanced ammunition management
 
 **Known Issues / Bugs:**
 
-*   **Shotgun Reload Discrepancy:** If the `clip_size` defined in the game's weapon configuration files (e.g., `weapon_m3.txt`, `weapon_xm1014.txt`) differs from the `sm_weapon_{m3/xm1014}_clip` setting in this plugin, the shotgun may continue to reload until its entire reserve ammunition is depleted, even if the magazine is full according to the plugin's settings. It is recommended to ensure consistency between game configuration and plugin CVARs.
+*   **Engine Quirk & Reload Bug:** The M3 and XM1014 shotguns have a hardcoded default ammo capacity (8 and 7 rounds, respectively) within the game engine. If you set `sm_weapon_m3_clip` or `sm_weapon_xm1014_clip` to a value different from this default, a reload bug can occur. After the initial magazine-style reload completes, pressing the reload key again may cause the shotgun to start reloading its entire reserve ammunition. This is due to underlying "crutches" in the game's logic, and it is impractical to fix without advanced modding (e.g., using DHooks).
 
 ---
 
@@ -34,4 +34,4 @@ This SourceMod plugin, `AmmoControl_v2`, provides enhanced ammunition management
 
 **Известные проблемы / Баги:**
 
-*   **Несоответствие перезарядки дробовика:** Если `clip_size`, определенный в файлах конфигурации оружия игры (например, `weapon_m3.txt`, `weapon_xm1014.txt`), отличается от настройки `sm_weapon_{m3/xm1014}_clip` в этом плагине, дробовик может продолжать перезаряжаться до тех пор, пока весь запасной боекомплект не опустеет, даже если магазин полон в соответствии с настройками плагина. Рекомендуется обеспечить согласованность между конфигурацией игры и CVAR'ами плагина.
+*   **Особенность движка и баг с перезарядкой:** У дробовиков M3 и XM1014 в коде игры "зашит" стандартный боезапас в 8 и 7 патронов соответственно. Если в `sm_weapon_m3_clip` или `sm_weapon_xm1014_clip` выставить значение, отличающееся от стандартного, может возникнуть сбой. После "магазинной" перезарядки до указанного в плагине количества патронов, если снова нажать на перезарядку, дробовик может начать дозаряжать в себя весь остальной боезапас. Это связано с "костылями" в логике самой игры, и бороться с этим без серьезного вмешательства в движок (например, через DHooks) практически бесполезно.
