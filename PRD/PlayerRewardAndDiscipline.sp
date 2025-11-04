@@ -9,27 +9,17 @@
 #include <keyvalues>
 #include <menus>
 #include <adt_trie>
+#include "mvp_data.inc"
 
-#define PLUGIN_VERSION "1.6"
+#define PLUGIN_VERSION "1.7"
 
 // --- Глобальные переменные ---
 // MVP
-int g_iMVP = -1;
 bool g_bHasVoted[MAXPLAYERS + 1];
 int g_iYesVotes = 0;
 ConVar g_hMVPVoteEnable;
 ConVar g_hMVPVoteAmount;
 ConVar g_hMVPMaxReward;
-
-struct PlayerStats
-{
-    int kills;
-    float last_kill_time;
-}
-PlayerStats g_PlayerStats[MAXPLAYERS + 1];
-int g_iHostagesRemaining = 0;
-int g_iBombPlanter = -1;
-
 
 // Teamkill
 ConVar g_hTeamkillEnable;
@@ -52,7 +42,7 @@ ConVar g_hAntiCamperTime;
 float g_vLastPosition[MAXPLAYERS + 1][3];
 int g_iCampingTime[MAXPLAYERS + 1];
 bool g_bIsCamping[MAXPLAYERS + 1];
-Handle g_hBeaconTimers[MAXPLAYERS + 1];
+Handle g_hCampingTimers[MAXPLAYERS + 1];
 int g_hBeaconSprite;
 
 // Rules
@@ -125,7 +115,6 @@ public void OnPluginStart()
     HookEvent("bomb_defused", Event_BombDefused);
     HookEvent("bomb_planted", Event_BombPlanted);
     HookEvent("hostage_rescued", Event_HostageRescued);
-    HookEvent("hostage_follows", Event_HostageFollows);
 
     LoadRules();
     LoadPunishments();
@@ -166,6 +155,24 @@ public void OnPluginEnd()
 
     // Destroy mutual damage map
     DestroyMutualDamage();
+}
+
+public void OnClientPutInServer(int client)
+{
+    g_fJoinTime[client] = GetGameTime();
+}
+
+public void OnClientDisconnect(int client)
+{
+    if (IsValidClient(client))
+    {
+        if (g_hBeaconTimers[client] != INVALID_HANDLE)
+        {
+            KillTimer(g_hBeaconTimers[client]);
+            g_hBeaconTimers[client] = INVALID_HANDLE;
+        }
+        g_iTeamkillAttacker[client] = 0; // Clear attacker data on disconnect
+    }
 }
 
 public void OnMapStart()
@@ -342,96 +349,19 @@ void LoadPunishments()
     delete kv;
 }
 
+// --- Event Handlers ---
 
-// --- Обработка тимкиллов ---
-
-public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
-{
-    if (!g_hTeamkillEnable.BoolValue)
-        return Plugin_Continue;
-
-    int attacker = GetClientOfUserId(event.GetInt("attacker"));
-    int victim   = GetClientOfUserId(event.GetInt("userid"));
-
-    if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
-        return Plugin_Continue;
-
-    if (IsFakeClient(attacker) && !g_hBotPunishment.BoolValue)
-        return Plugin_Continue;
-
-    if (GetClientTeam(attacker) == GetClientTeam(victim))
-    {
-        // --- Проверка "Правосудие" ---
-        if (g_iTeamKills[victim] >= g_hTeamkillForgiveThreshold.IntValue)
-        {
-            CPrintToChatAll("%t", "Teamkill_Justice", attacker, victim);
-            return Plugin_Continue;
-        }
-
-        // --- Проверка "Взаимная агрессия" ---
-        int mutual = GetMutualDamage(victim, attacker);
-        if (mutual >= g_hTeamDamageMutualThreshold.IntValue)
-        {
-            g_iTeamKills[attacker]++;
-            CPrintToChatAll("%t", "Teamkill_Mutual", attacker, victim);
-            return Plugin_Continue;
-        }
-
-        // --- Невинная жертва ---
-        g_iTeamKills[attacker]++;
-
-        int punishMode = g_hTeamkillPunishMode.IntValue;
-
-        if (punishMode == 1)
-        {
-            ForcePlayerSuicide(attacker);
-            CPrintToChatAll("%t", "Teamkill_AutoPunish", attacker, victim);
-        }
-        else if (punishMode == 2)
-        {
-            KeyValues kv = new KeyValues("TeamkillIncident");
-            kv.SetNum("victim_userid", GetClientUserId(victim));
-            kv.SetNum("attacker_userid", GetClientUserId(attacker));
-            g_hTeamkillIncidents.Push(kv);
-
-            CPrintToChat(victim, "%t", "Teamkill_VictimNotice", attacker);
-        }
-    }
-    else
-    {
-        g_PlayerStats[attacker].kills++;
-        g_PlayerStats[attacker].last_kill_time = GetGameTime();
-    }
-
-    return Plugin_Continue;
-}
-
-public Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast)
-{
-    if (!g_hTeamkillEnable.BoolValue)
-        return Plugin_Continue;
-
-    int attacker = GetClientOfUserId(event.GetInt("attacker"));
-    int victim   = GetClientOfUserId(event.GetInt("userid"));
-
-    if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
-        return Plugin_Continue;
-
-    if (GetClientTeam(attacker) == GetClientTeam(victim))
-    {
-        int damage = event.GetInt("damage");
-        StoreMutualDamageAdd(attacker, victim, damage);
-    }
-
-    return Plugin_Continue;
-}
-// --- Начало раунда ---
 public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
     g_iRoundCounter++;
 
     g_iMVP = -1; // Reset MVP
     g_iBombPlanter = -1; // Reset bomb planter
+
+    for (int i = 0; i < 5; i++)
+    {
+        g_fTeamDamage[i] = 0.0;
+    }
 
     // reset per-round counters
     for (int i = 1; i <= MaxClients; i++)
@@ -440,7 +370,7 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
         g_bHasVoted[i] = false; // Reset MVP votes
         g_PlayerStats[i].kills = 0;
         g_PlayerStats[i].last_kill_time = 0.0;
-        g_iMVP_Points[i] = 0;
+        g_iAssists[i] = 0;
     }
 
     // Get hostage count
@@ -448,7 +378,9 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
     int maxEntities = GetMaxEntities();
     for (int i = 1; i <= maxEntities; i++)
     {
-        if (IsValidEdict(i) && StrEqual(GetEdictClassname(i), "hostage_entity"))
+        char classname[64];
+        GetEntityClassname(i, classname, sizeof(classname));
+        if (IsValidEdict(i) && StrEqual(classname, "hostage_entity", false))
         {
             g_iHostagesRemaining++;
         }
@@ -530,7 +462,223 @@ public Action Event_RoundStart(Event event, const char[] name, bool dontBroadcas
     return Plugin_Continue;
 }
 
-// --- Меню наказания за тимкилл ---
+public Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (!IsValidClient(client)) return Plugin_Continue;
+
+    g_iCampingTime[client] = 0;
+    g_bIsCamping[client] = false;
+    if (g_hBeaconTimers[client] != INVALID_HANDLE)
+    {
+        KillTimer(g_hBeaconTimers[client]);
+        g_hBeaconTimers[client] = INVALID_HANDLE;
+    }
+
+    if (g_hAntiCamperEnable.BoolValue)
+        g_hCampingTimers[client] = CreateTimer(1.0, Timer_Camping, GetClientUserId(client), TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+    return Plugin_Continue;
+}
+
+public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+    if (!g_hTeamkillEnable.BoolValue)
+        return Plugin_Continue;
+
+    int attacker = GetClientOfUserId(event.GetInt("attacker"));
+    int victim   = GetClientOfUserId(event.GetInt("userid"));
+    int assister = GetClientOfUserId(event.GetInt("assister"));
+
+    if (assister > 0 && assister != attacker)
+    {
+        g_iAssists[assister]++;
+    }
+
+    if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
+        return Plugin_Continue;
+
+    if (IsFakeClient(attacker) && !g_hBotPunishment.BoolValue)
+        return Plugin_Continue;
+
+    if (GetClientTeam(attacker) == GetClientTeam(victim))
+    {
+        // --- Проверка "Правосудие" ---
+        if (g_iTeamKills[victim] >= g_hTeamkillForgiveThreshold.IntValue)
+        {
+            CPrintToChatAll("%t", "Teamkill_Justice", attacker, victim);
+            return Plugin_Continue;
+        }
+
+        // --- Проверка "Взаимная агрессия" ---
+        int mutual = GetMutualDamage(victim, attacker);
+        if (mutual >= g_hTeamDamageMutualThreshold.IntValue)
+        {
+            g_iTeamKills[attacker]++;
+            CPrintToChatAll("%t", "Teamkill_Mutual", attacker, victim);
+            return Plugin_Continue;
+        }
+
+        // --- Невинная жертва ---
+        g_iTeamKills[attacker]++;
+
+        int punishMode = g_hTeamkillPunishMode.IntValue;
+
+        if (punishMode == 1)
+        {
+            ForcePlayerSuicide(attacker);
+            CPrintToChatAll("%t", "Teamkill_AutoPunish", attacker, victim);
+        }
+        else if (punishMode == 2)
+        {
+            KeyValues kv = new KeyValues("TeamkillIncident");
+            kv.SetNum("victim_userid", GetClientUserId(victim));
+            kv.SetNum("attacker_userid", GetClientUserId(attacker));
+            g_hTeamkillIncidents.Push(kv);
+
+            CPrintToChat(victim, "%t", "Teamkill_VictimNotice", attacker);
+        }
+    }
+    else
+    {
+        g_PlayerStats[attacker].kills++;
+        g_PlayerStats[attacker].last_kill_time = GetGameTime();
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast)
+{
+    if (!g_hTeamkillEnable.BoolValue)
+        return Plugin_Continue;
+
+    int attacker = GetClientOfUserId(event.GetInt("attacker"));
+    int victim   = GetClientOfUserId(event.GetInt("userid"));
+
+    if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
+        return Plugin_Continue;
+
+    int team = GetClientTeam(attacker);
+    if (team >= 2 && team <= 3)
+    {
+        g_fTeamDamage[team] += event.GetInt("damage");
+    }
+
+    if (GetClientTeam(attacker) == GetClientTeam(victim))
+    {
+        int damage = event.GetInt("damage");
+        StoreMutualDamageAdd(attacker, victim, damage);
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
+{
+    int winner = event.GetInt("winner");
+    if (winner == 0) return Plugin_Continue; // No MVP on draw
+
+    int reason = event.GetInt("reason");
+
+    if (reason == 1 && g_fTeamDamage[winner] == 0.0) return Plugin_Continue; // Target saved, no damage
+
+    // Objective-based MVP
+    if (g_iMVP != -1)
+    {
+        // Bomb defused
+        if (reason == 8) // CSRoundEnd_BombDefused
+        {
+            if (g_PlayerStats[g_iMVP].kills == 0)
+            {
+                // Defuser has no kills, find player with most kills on winning team
+                g_iMVP = FindMVPByKills(winner);
+            }
+        }
+        // Hostages rescued - g_iMVP is already set to the last rescuer
+    }
+    else if (reason == 9) // CSRoundEnd_Bomb
+    {
+        if (g_iBombPlanter != -1 && IsValidClient(g_iBombPlanter))
+        {
+            g_iMVP = g_iBombPlanter;
+        }
+    }
+    else
+    {
+        // Elimination or time-out win
+        g_iMVP = FindMVPByKills(winner);
+    }
+
+    return Plugin_Continue;
+}
+
+public void Event_BombPlanted(Event event, const char[] name, bool dontBroadcast)
+{
+    int planter = GetClientOfUserId(event.GetInt("userid"));
+    g_iBombPlanter = planter;
+}
+
+public void Event_BombDefused(Event event, const char[] name, bool dontBroadcast)
+{
+    int defuser = GetClientOfUserId(event.GetInt("userid"));
+    g_iMVP = defuser;
+}
+
+public void Event_HostageRescued(Event event, const char[] name, bool dontBroadcast)
+{
+    g_iHostagesRemaining--;
+    if (g_iHostagesRemaining == 0)
+    {
+        int rescuer = GetClientOfUserId(event.GetInt("userid"));
+        g_iMVP = rescuer;
+    }
+}
+
+int FindMVPByKills(int winning_team)
+{
+    int mvp = 0;
+    int max_kills = -1;
+    int max_points = -1;
+    float earliest_join_time = 999999.0;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsValidClient(i) && GetClientTeam(i) == winning_team)
+        {
+            int kills = g_PlayerStats[i].kills;
+            int points = (kills * 2) + g_iAssists[i];
+
+            if (kills > max_kills)
+            {
+                max_kills = kills;
+                max_points = points;
+                mvp = i;
+                earliest_join_time = g_fJoinTime[i];
+            }
+            else if (kills == max_kills && kills > 0)
+            {
+                if (points > max_points)
+                {
+                    max_points = points;
+                    mvp = i;
+                    earliest_join_time = g_fJoinTime[i];
+                }
+                else if (points == max_points)
+                {
+                    if (g_fJoinTime[i] < earliest_join_time)
+                    {
+                        mvp = i;
+                        earliest_join_time = g_fJoinTime[i];
+                    }
+                }
+            }
+        }
+    }
+    return mvp;
+}
+
+// --- Menu Handlers ---
+
 public int MenuHandler_TeamkillPunishment(Menu menu, MenuAction action, int client, int item)
 {
     if (action == MenuAction_Select)
@@ -581,114 +729,6 @@ public int MenuHandler_TeamkillPunishment(Menu menu, MenuAction action, int clie
     return 0;
 }
 
-// --- Спавн игрока ---
-public Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
-{
-    int client = GetClientOfUserId(event.GetInt("userid"));
-    if (!IsValidClient(client)) return Plugin_Continue;
-
-    g_iCampingTime[client] = 0;
-    g_bIsCamping[client] = false;
-    if (g_hBeaconTimers[client] != INVALID_HANDLE)
-    {
-        KillTimer(g_hBeaconTimers[client]);
-        g_hBeaconTimers[client] = INVALID_HANDLE;
-    }
-
-    if (g_hAntiCamperEnable.BoolValue)
-        g_hBeaconTimers[client] = CreateTimer(1.0, Timer_CheckCamper, GetClientUserId(client), TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
-    return Plugin_Continue;
-}
-
-public void OnClientDisconnect(int client)
-{
-    if (IsValidClient(client))
-    {
-        if (g_hBeaconTimers[client] != INVALID_HANDLE)
-        {
-            KillTimer(g_hBeaconTimers[client]);
-            g_hBeaconTimers[client] = INVALID_HANDLE;
-        }
-        g_iTeamkillAttacker[client] = 0; // Clear attacker data on disconnect
-    }
-}
-
-public Action Event_OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
-{
-    if (g_iMVP == -1) // If no objective-based MVP was set
-    {
-        int reason = event.GetInt("reason");
-        if (reason == 9) // CSRoundEnd_Bomb - Bomb exploded
-        {
-            if (g_iBombPlanter != -1 && IsValidClient(g_iBombPlanter))
-            {
-                g_iMVP = g_iBombPlanter;
-            }
-        }
-        else
-        {
-            int max_kills = 0;
-            int mvp = 0;
-            float earliest_kill_time = 999999.0;
-
-            for(int i = 1; i <= MaxClients; i++)
-            {
-                if(IsValidClient(i) && g_PlayerStats[i].kills > 0)
-                {
-                    if (g_PlayerStats[i].kills > max_kills)
-                    {
-                        max_kills = g_PlayerStats[i].kills;
-                        mvp = i;
-                        earliest_kill_time = g_PlayerStats[i].last_kill_time;
-                    }
-                    else if (g_PlayerStats[i].kills == max_kills)
-                    {
-                        if (g_PlayerStats[i].last_kill_time < earliest_kill_time)
-                        {
-                            mvp = i;
-                            earliest_kill_time = g_PlayerStats[i].last_kill_time;
-                        }
-                    }
-                }
-            }
-            if(mvp > 0 && IsValidClient(mvp))
-            {
-                g_iMVP = mvp;
-            }
-        }
-    }
-    return Plugin_Continue;
-}
-
-// --- MVP ---
-        
-        public void Event_BombPlanted(Event event, const char[] name, bool dontBroadcast)
-        {
-            int planter = GetClientOfUserId(event.GetInt("userid"));
-            g_iBombPlanter = planter;
-            g_iMVP_Points[planter] += 5;
-        }        
-        public void Event_BombDefused(Event event, const char[] name, bool dontBroadcast)
-        {
-            int defuser = GetClientOfUserId(event.GetInt("userid"));
-            g_iMVP_Points[defuser] += 10;
-            g_iMVP = defuser;
-        }        
-        public void Event_HostageFollows(Event event, const char[] name, bool dontBroadcast)
-        {
-            // This event is fired when a player takes a hostage.
-            // We don't need to do anything here, but the event is hooked.
-        }
-        
-        public void Event_HostageRescued(Event event, const char[] name, bool dontBroadcast)
-        {
-            g_iHostagesRemaining--;
-            if (g_iHostagesRemaining == 0)
-            {
-                int rescuer = GetClientOfUserId(event.GetInt("userid"));
-                g_iMVP = rescuer;
-            }
-        }// --- Меню голосования за MVP ---
 public int MenuHandler_MVPVote(Menu menu, MenuAction action, int client, int item)
 {
     if (action == MenuAction_Select)
@@ -743,12 +783,15 @@ public int MenuHandler_MVPVote(Menu menu, MenuAction action, int client, int ite
     return 0;
 }
 
-// --- Таймер анти‑кемпера ---
-public Action Timer_CheckCamper(Handle timer, any userid)
+// --- Timers ---
+
+public Action Timer_Camping(Handle timer, any userid)
 {
     int client = GetClientOfUserId(userid);
     if (!IsValidClient(client) || !IsPlayerAlive(client))
+    {
         return Plugin_Stop;
+    }
 
     AdminId admin = GetUserAdmin(client);
     if (admin != INVALID_ADMIN_ID && (GetAdminFlags(admin, Access_Effective) & ADMFLAG_ROOT))
@@ -764,12 +807,6 @@ public Action Timer_CheckCamper(Handle timer, any userid)
         {
             g_bIsCamping[client] = true;
             EmitSoundToAll("plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav", client);
-            if (g_hBeaconTimers[client] != INVALID_HANDLE)
-            {
-                KillTimer(g_hBeaconTimers[client]);
-                g_hBeaconTimers[client] = INVALID_HANDLE;
-            }
-            g_hBeaconTimers[client] = CreateTimer(1.0, Timer_DrawBeacon, GetClientUserId(client), TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
         }
     }
     else
@@ -779,39 +816,23 @@ public Action Timer_CheckCamper(Handle timer, any userid)
         {
             g_bIsCamping[client] = false;
             StopSound(client, SNDCHAN_AUTO, "plugins/weapons_SFX/Flame/a-sudden-burst-of-fire.wav");
-            if (g_hBeaconTimers[client] != INVALID_HANDLE)
-            {
-                KillTimer(g_hBeaconTimers[client]);
-                g_hBeaconTimers[client] = INVALID_HANDLE;
-            }
         }
+    }
+
+    if (g_bIsCamping[client])
+    {
+        float origin[3];
+        GetClientAbsOrigin(client, origin);
+
+        TE_SetupBeamRingPoint(origin, 50.0, 250.0, g_hBeaconSprite, g_hBeaconSprite,
+                              0, 10, 1.0, 5.0, 0.0, {255,0,0,255}, 10, 0);
+        TE_SendToAll();
     }
 
     StoreVector(pos, g_vLastPosition[client]);
     return Plugin_Continue;
 }
 
-// --- Рисование маяка ---
-public Action Timer_DrawBeacon(Handle timer, any userid)
-{
-    int client = GetClientOfUserId(userid);
-    if (!IsValidClient(client) || !IsPlayerAlive(client))
-    {
-        g_hBeaconTimers[client] = INVALID_HANDLE;
-        return Plugin_Stop;
-    }
-
-    float origin[3];
-    GetClientAbsOrigin(client, origin);
-
-    TE_SetupBeamRingPoint(origin, 50.0, 250.0, g_hBeaconSprite, g_hBeaconSprite,
-                          0, 10, 1.0, 5.0, 0.0, {255,0,0,255}, 10, 0);
-    TE_SendToAll();
-
-    return Plugin_Continue;
-}
-
-// --- Показ правил ---
 public Action Timer_DisplayRules(Handle timer)
 {
     if (g_hFreezeTime != null && GetGameTime() > g_hFreezeTime.FloatValue)
@@ -907,10 +928,7 @@ public int AdminMenuHandler(Menu menu, MenuAction action, int client, int item)
     return 0;
 }
 
-
-
-
-// --- Утилиты ---
+// --- Utilities ---
 
 void StoreVector(float src[3], float dest[3])
 {
@@ -921,7 +939,7 @@ void StoreVector(float src[3], float dest[3])
 
 bool PrecacheAndAddSound(const char[] relPath)
 {
-    if (relPath[0] == '\0')
+    if (relPath[0] == ' ')
         return false;
 
     char fullPath[PLATFORM_MAX_PATH];
