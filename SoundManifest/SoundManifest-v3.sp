@@ -454,6 +454,8 @@ public void OnPlayerDeath(Event event, const char[] name, bool silent)
                 strcopy(sEventToPlay, sizeof(sEventToPlay), "GrenadeKill");
             } else if (weaponType == WEAPON_TYPE_KNIFE) {
                 strcopy(sEventToPlay, sizeof(sEventToPlay), "KnifeKill");
+            } else {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "SpecialKill");
             }
         }
     }
