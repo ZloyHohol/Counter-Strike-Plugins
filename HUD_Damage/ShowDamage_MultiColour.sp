@@ -62,7 +62,9 @@ public OnPlayerHurt(Event hEvent, const char[] sEvName, bool dDontBroadcast)
 	int iVictim = GetClientOfUserId(hEvent.GetInt("userid"));
 	int iDamage = hEvent.GetInt("dmg_health");
 	int iHealth = GetClientHealth(iVictim);
+	int iArmor = GetClientArmor(iVictim); // Получаем броню жертвы
 	char cHealth[32];
+	char cArmor[32]; // Буфер для брони
 	
 	if (0 < iAttacker <= MaxClients && !IsFakeClient(iAttacker))
 	{
@@ -89,13 +91,18 @@ public OnPlayerHurt(Event hEvent, const char[] sEvName, bool dDontBroadcast)
 		if(iHealth > 0) FormatEx(cHealth, sizeof(cHealth), "%i", iHealth);
 		else FormatEx(cHealth, sizeof(cHealth), "0");
 
+		if(iArmor > 0) FormatEx(cArmor, sizeof(cArmor), "%i", iArmor);
+		else FormatEx(cArmor, sizeof(cArmor), "0");
+
 		if(StrEqual(StyleShowDamage[iAttacker], "NewStyle")) 
 		{
-			SendHudMessage(iAttacker, 3, -1.0, -0.6, hudColor, 0x333333FF, 0, 0.3, 1.0, 1.0, 2.0, "%N\nУрон -%i | Осталось - %s/ХП", iVictim, iDamage, cHealth);
+            char sHudMessage[256];
+            FormatEx(sHudMessage, sizeof(sHudMessage), "%N\nУрон -%i | %sЖ | %sБ", iVictim, iDamage, cHealth, cArmor);
+			SendHudMessage(iAttacker, 3, -1.0, -0.6, hudColor, 0x333333FF, 0, 0.3, 1.0, 1.0, 2.0, sHudMessage);
 		}
 		else if (StrEqual(StyleShowDamage[iAttacker], "OldStyle")) 
 		{
-			PrintCenterText(iAttacker, "\nУрон -%i | Осталось - %s/ХП", iDamage, cHealth);
+			PrintCenterText(iAttacker, "\nУрон -%i | %sЖ | %sБ", iDamage, cHealth, cArmor);
 		}
 	}
 } 
