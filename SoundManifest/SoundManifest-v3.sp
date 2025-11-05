@@ -544,11 +544,14 @@ void PlayEvent(const char[] sEventName, int param1, int param2)
         if (StrEqual(sEventName, "FirstBlood") || StrEqual(sEventName, "TripleKill") || StrEqual(sEventName, "QuadKill") || StrEqual(sEventName, "MultiKill") || StrEqual(sEventName, "SuperKill") || StrEqual(sEventName, "UltraKill") || StrEqual(sEventName, "MegaKill") || StrEqual(sEventName, "MonsterKill") || StrEqual(sEventName, "Godlike")) {
             for (int i = 1; i <= MaxClients; i++) {
                 if (IsClientInGame(i) && g_bSoundEnabled[i]) {
+                    char sFormattedMsg[256];
+                    Format(sFormattedMsg, sizeof(sFormattedMsg), "%t", sTranslationKey, param1, param2);
+
                     SendHudMessage(i,
                         2, -1.0, -0.3,   // channel=2, центр экрана
                         0xFF00FFFF, 0xFFFFFFFF, // цвет1 фиолетовый → цвет2 белый
                         0, 0.5, 1.0, 2.0, 0.0,
-                        "%t", sTranslationKey, param1, param2);
+                        sFormattedMsg);
                     PrintToServer("[SM] DEBUG: PlayEvent - HUD message displayed for %s (key: %s) to client %d.", sEventName, sTranslationKey, i);
                 }
             }
