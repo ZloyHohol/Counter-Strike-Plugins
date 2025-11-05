@@ -105,6 +105,22 @@ public void OnPlayerDeath(Event event, const char[] name, bool silent)
 
     // --- Handle Player Kill ---
 
+    // Abort if the attacker is no longer a valid, in-game client.
+    if (iAttacker <= 0 || iAttacker > MaxClients || !IsClientInGame(iAttacker))
+    {
+        return;
+    }
+
+    // Manually get the attacker's name to prevent formatting errors with %N
+    char sAttackerName[MAX_NAME_LENGTH];
+    GetClientName(iAttacker, sAttackerName, sizeof(sAttackerName));
+
+    // If the name is empty for some reason, abort to prevent "Killed by ."
+    if (sAttackerName[0] == '\0')
+    {
+        return;
+    }
+
     int iAttackerHealth = GetClientHealth(iAttacker);
     int iAttackerArmor = GetClientArmor(iAttacker);
     int iAttackerTeam = GetClientTeam(iAttacker);
@@ -114,7 +130,7 @@ public void OnPlayerDeath(Event event, const char[] name, bool silent)
 
     // Print initial killer info
     PrintToChat(iVictim, " "); // Spacer line
-    FormatEx(sBuffer, sizeof(sBuffer), "\x01Вас убил %c%N\x01.", sAttackerColor, iAttacker);
+    FormatEx(sBuffer, sizeof(sBuffer), "\x01Вас убил %c%s\x01.", sAttackerColor, sAttackerName);
     PrintToChat(iVictim, sBuffer);
 
     FormatEx(sBuffer, sizeof(sBuffer), "\x01HP Осталось: \x03%d\x01 | Броня: \x07%d", iAttackerHealth, iAttackerArmor);
