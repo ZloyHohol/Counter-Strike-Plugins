@@ -66,6 +66,7 @@ int g_iTotalKillsThisRound = 0;
 int g_iLastKillCount[MAXPLAYERS + 1]; // For Combo
 int g_iPlayerTeamkills[MAXPLAYERS + 1]; // For JusticeKill
 int g_iEpicStreak[MAXPLAYERS + 1]; // For Epic Streaks (MultiKill, etc.)
+int g_iAnnouncedStreakLevel[MAXPLAYERS + 1]; // Tracks the highest announced streak level per round
 char g_sLastWeaponType[MAXPLAYERS + 1][64]; // For SpecialKill detection
 
 enum EventType {
@@ -364,19 +365,39 @@ public void OnPlayerDeath(Event event, const char[] name, bool silent)
     }
 
     // Tertiary Events: Epic Streaks (MultiKill, SuperKill, etc.)
-    if (g_iEpicStreak[iAttacker] >= g_hEpicStreakThreshold.IntValue) {
-        // Determine specific epic streak based on count
+    if (g_iEpicStreak[iAttacker] >= g_hEpicStreakThreshold.IntValue) { // threshold is 5
         char sEpicStreakEvent[32];
-        if (g_iEpicStreak[iAttacker] == 5) strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "MultiKill");
-        else if (g_iEpicStreak[iAttacker] == 6) strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "SuperKill");
-        else if (g_iEpicStreak[iAttacker] == 7) strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "UltraKill");
-        else if (g_iEpicStreak[iAttacker] == 8) strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "MegaKill");
-        else if (g_iEpicStreak[iAttacker] == 9) strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "MonsterKill");
-        else if (g_iEpicStreak[iAttacker] >= 10) strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "Godlike");
+        int iNewStreakLevel = 0;
 
-        if (iCurrentWeight < 600) {
-            strcopy(sEventToPlay, sizeof(sEventToPlay), sEpicStreakEvent);
-            iCurrentWeight = 600;
+        if (g_iEpicStreak[iAttacker] >= 10) {
+            strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "Godlike");
+            iNewStreakLevel = 6;
+        } else if (g_iEpicStreak[iAttacker] == 9) {
+            strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "MonsterKill");
+            iNewStreakLevel = 5;
+        } else if (g_iEpicStreak[iAttacker] == 8) {
+            strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "MegaKill");
+            iNewStreakLevel = 4;
+        } else if (g_iEpicStreak[iAttacker] == 7) {
+            strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "UltraKill");
+            iNewStreakLevel = 3;
+        } else if (g_iEpicStreak[iAttacker] == 6) {
+            strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "SuperKill");
+            iNewStreakLevel = 2;
+        } else if (g_iEpicStreak[iAttacker] == 5) {
+            strcopy(sEpicStreakEvent, sizeof(sEpicStreakEvent), "MultiKill");
+            iNewStreakLevel = 1;
+        }
+
+        // Only announce if this is a NEW, higher streak level for this player this round.
+        if (iNewStreakLevel > g_iAnnouncedStreakLevel[iAttacker])
+        {
+            if (iCurrentWeight < 600) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), sEpicStreakEvent);
+                iCurrentWeight = 600;
+            }
+            // Record that we have now announced this level.
+            g_iAnnouncedStreakLevel[iAttacker] = iNewStreakLevel;
         }
     }
 
@@ -441,6 +462,7 @@ public void OnRoundStart(Event event, const char[] name, bool silent)
         g_iLastKillTime[i] = 0;
         g_iLastKillCount[i] = 0;
         g_iEpicStreak[i] = 0;
+        g_iAnnouncedStreakLevel[i] = 0; // Reset announced streak level
         // g_iPlayerTeamkills is not reset here, as it tracks across rounds/maps for JusticeKill
         // Clear g_sLastWeaponType
         g_sLastWeaponType[i][0] = '\0';
@@ -477,11 +499,15 @@ void PlayEvent(const char[] sEventName, int param1, int param2)
         return;
     }
 
-    // Cooldown check
     EventType eventType = view_as<EventType>(FindEventType(sEventName));
-    if (eventType != EVENT_TYPE_COUNT && GetTime() - g_fLastPlayedTime[eventType] < g_hCooldownInterval.FloatValue) {
-        PrintToServer("[SM] DEBUG: PlayEvent - Event %s on cooldown.", sEventName);
-        return;
+
+    // Cooldown check
+    if (!IsStreakEvent(sEventName))
+    {
+        if (eventType != EVENT_TYPE_COUNT && GetTime() - g_fLastPlayedTime[eventType] < g_hCooldownInterval.FloatValue) {
+            PrintToServer("[SM] DEBUG: PlayEvent - Event %s on cooldown.", sEventName);
+            return;
+        }
     }
 
     char sSound[PLATFORM_MAX_PATH];
@@ -624,6 +650,16 @@ public int Handler_SoundMenu(Menu menu, MenuAction action, int client, int item)
         delete menu;
     }
     return 0;
+}
+
+bool IsStreakEvent(const char[] sEventName)
+{
+    return StrEqual(sEventName, "MultiKill") ||
+           StrEqual(sEventName, "SuperKill") ||
+           StrEqual(sEventName, "UltraKill") ||
+           StrEqual(sEventName, "MegaKill") ||
+           StrEqual(sEventName, "MonsterKill") ||
+           StrEqual(sEventName, "Godlike");
 }
 
 EventType FindEventType(const char[] sEventName)
