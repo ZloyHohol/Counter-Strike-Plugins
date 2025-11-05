@@ -88,6 +88,11 @@ enum EventType {
     TeamKill,
     JusticeKill,
     SpecialKill,
+    RifleKill,
+    SMGKill,
+    ShotgunKill,
+    SniperKill,
+    PistolKill,
     PlayerDisconnect,
     PlayerKick,
     PlayerVACBanned,
@@ -401,20 +406,11 @@ public void OnPlayerDeath(Event event, const char[] name, bool silent)
         }
     }
 
-    // Special Events: ComboKill, SpecialKill
+    // Special Events: ComboKill
     if (g_iLastKillCount[iAttacker] >= 2) { // ComboKill
         if (iCurrentWeight < 160) {
             strcopy(sEventToPlay, sizeof(sEventToPlay), "Combo");
             iEventParam = g_iLastKillCount[iAttacker];
-            iCurrentWeight = 160;
-        }
-    }
-
-    // SpecialKill (unusual weapon/damage type)
-    // This is a basic check, can be expanded later
-    if (StrContains(sWeapon, "weapon_", false) == -1 && StrContains(sWeapon, "knife", false) == -1 && StrContains(sWeapon, "hegrenade", false) == -1 && StrContains(sWeapon, "taser", false) == -1) {
-        if (iCurrentWeight < 160) {
-            strcopy(sEventToPlay, sizeof(sEventToPlay), "SpecialKill");
             iCurrentWeight = 160;
         }
     }
@@ -437,14 +433,28 @@ public void OnPlayerDeath(Event event, const char[] name, bool silent)
         }
     }
 
-    // Primary Events: KnifeKill, GrenadeKill, Headshot
-    if (iCurrentWeight < 20) { // Only consider if no higher priority event was selected
+    // Primary Events: Headshot & Weapon-Specific Kills
+    if (iCurrentWeight < 20) {
         if (bHeadshot) {
             strcopy(sEventToPlay, sizeof(sEventToPlay), "Headshot");
-        } else if (StrContains(sWeapon, "knife", false) != -1) {
-            strcopy(sEventToPlay, sizeof(sEventToPlay), "KnifeKill");
-        } else if (StrContains(sWeapon, "hegrenade", false) != -1) {
-            strcopy(sEventToPlay, sizeof(sEventToPlay), "GrenadeKill");
+        } else {
+            WeaponType weaponType = GetWeaponType(sWeapon);
+
+            if (weaponType == WEAPON_TYPE_RIFLE) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "RifleKill");
+            } else if (weaponType == WEAPON_TYPE_SMG) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "SMGKill");
+            } else if (weaponType == WEAPON_TYPE_SHOTGUN) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "ShotgunKill");
+            } else if (weaponType == WEAPON_TYPE_SNIPER) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "SniperKill");
+            } else if (weaponType == WEAPON_TYPE_PISTOL) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "PistolKill");
+            } else if (weaponType == WEAPON_TYPE_GRENADE) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "GrenadeKill");
+            } else if (weaponType == WEAPON_TYPE_KNIFE) {
+                strcopy(sEventToPlay, sizeof(sEventToPlay), "KnifeKill");
+            }
         }
     }
 
@@ -652,6 +662,45 @@ public int Handler_SoundMenu(Menu menu, MenuAction action, int client, int item)
     return 0;
 }
 
+enum WeaponType {
+    WEAPON_TYPE_UNKNOWN,
+    WEAPON_TYPE_RIFLE,
+    WEAPON_TYPE_SMG,
+    WEAPON_TYPE_SHOTGUN,
+    WEAPON_TYPE_SNIPER,
+    WEAPON_TYPE_PISTOL,
+    WEAPON_TYPE_GRENADE,
+    WEAPON_TYPE_KNIFE
+}
+
+WeaponType GetWeaponType(const char[] sWeapon) {
+    if (StrContains(sWeapon, "knife", false) != -1) return WEAPON_TYPE_KNIFE;
+    if (StrContains(sWeapon, "hegrenade", false) != -1) return WEAPON_TYPE_GRENADE;
+
+    // Rifles
+    if (StrEqual(sWeapon, "galil") || StrEqual(sWeapon, "famas") || StrEqual(sWeapon, "ak47") || StrEqual(sWeapon, "m4a1") || StrEqual(sWeapon, "sg552") || StrEqual(sWeapon, "aug")) {
+        return WEAPON_TYPE_RIFLE;
+    }
+    // SMGs
+    if (StrEqual(sWeapon, "mp5navy") || StrEqual(sWeapon, "tmp") || StrEqual(sWeapon, "p90") || StrEqual(sWeapon, "mac10") || StrEqual(sWeapon, "ump45")) {
+        return WEAPON_TYPE_SMG;
+    }
+    // Shotguns
+    if (StrEqual(sWeapon, "m3") || StrEqual(sWeapon, "xm1014")) {
+        return WEAPON_TYPE_SHOTGUN;
+    }
+    // Snipers
+    if (StrEqual(sWeapon, "scout") || StrEqual(sWeapon, "sg550") || StrEqual(sWeapon, "awp") || StrEqual(sWeapon, "g3sg1")) {
+        return WEAPON_TYPE_SNIPER;
+    }
+    // Pistols
+    if (StrEqual(sWeapon, "glock") || StrEqual(sWeapon, "usp") || StrEqual(sWeapon, "p228") || StrEqual(sWeapon, "deagle") || StrEqual(sWeapon, "elite") || StrEqual(sWeapon, "fiveseven")) {
+        return WEAPON_TYPE_PISTOL;
+    }
+
+    return WEAPON_TYPE_UNKNOWN;
+}
+
 bool IsStreakEvent(const char[] sEventName)
 {
     return StrEqual(sEventName, "MultiKill") ||
@@ -682,6 +731,11 @@ EventType FindEventType(const char[] sEventName)
     if (StrEqual(sEventName, "TeamKill")) return TeamKill;
     if (StrEqual(sEventName, "JusticeKill")) return JusticeKill;
     if (StrEqual(sEventName, "SpecialKill")) return SpecialKill;
+    if (StrEqual(sEventName, "RifleKill")) return RifleKill;
+    if (StrEqual(sEventName, "SMGKill")) return SMGKill;
+    if (StrEqual(sEventName, "ShotgunKill")) return ShotgunKill;
+    if (StrEqual(sEventName, "SniperKill")) return SniperKill;
+    if (StrEqual(sEventName, "PistolKill")) return PistolKill;
     if (StrEqual(sEventName, "PlayerDisconnect")) return PlayerDisconnect;
     if (StrEqual(sEventName, "PlayerKick")) return PlayerKick;
     if (StrEqual(sEventName, "PlayerVACBanned")) return PlayerVACBanned;
