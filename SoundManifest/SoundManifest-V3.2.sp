@@ -409,15 +409,11 @@ bool PrecacheAndValidateSound(const char[] sRelativePath, float maxSizeMB)
     }
     
     // Check file size
-    File file = OpenFile(sFullPath, "rb");
-    if (file == null) {
-        LogDebug(0, "[SM] Cannot open sound file for size check: %s", sFullPath);
+    int fileSize = FileSize(sFullPath);
+    if (fileSize == -1) {
+        LogDebug(0, "[SM] Cannot get file size for: %s", sFullPath);
         return false;
     }
-    
-    file.Seek(0, SEEK_END);
-    int fileSize = file.Tell();
-    file.Close();
     
     float maxSizeBytes = maxSizeMB * 1024.0 * 1024.0; // Convert MB to bytes
     if (fileSize > maxSizeBytes) {
@@ -447,20 +443,28 @@ void GetExtension(const char[] filename, char[] ext, int maxlen)
 {
     int len = strlen(filename);
     int dotPos = -1;
-    
-    // Find the last dot
-    for (int i = len - 1; i >= 0; i--) {
-        if (filename[i] == '.') {
+
+    for (int i = len - 1; i >= 0; i--)
+    {
+        if (filename[i] == '.')
+        {
             dotPos = i;
             break;
         }
     }
-    
-    if (dotPos != -1) {
-        strcopy(ext, maxlen, filename[dotPos]); // This correctly copies the extension starting from the dot
-    } else {
+
+    if (dotPos == -1 || maxlen <= 1)
+    {
         ext[0] = '\0';
+        return;
     }
+
+    int j = 0;
+    for (int i = dotPos; i < len && j < maxlen - 1; i++)
+    {
+        ext[j++] = filename[i];
+    }
+    ext[j] = '\0';
 }
 
 SoundEventType GetEventTypeByName(const char[] name)
@@ -653,54 +657,42 @@ void PlaySoundToAudience(SoundEventType eventType, const char[] soundPath, int p
 {
     // Process each audience type
     for (int i = 0; i < g_iAudienceCount[eventType]; i++) {
-        switch (g_EventAudience[eventType][i]) {
-            case AUDIENCE_KILLER: {
-                if (param1 > 0 && IsClientInGame(param1) && g_bSoundEnabled[param1]) {
-                    EmitSoundToClient(param1, soundPath);
-                    LogDebug(3, "[SM] Played sound to killer: %N", param1);
-                }
-                break;
+        AudienceType audience = g_EventAudience[eventType][i];
+        if (audience == AUDIENCE_KILLER) {
+            if (param1 > 0 && IsClientInGame(param1) && g_bSoundEnabled[param1]) {
+                EmitSoundToClient(param1, soundPath);
+                LogDebug(3, "[SM] Played sound to killer: %N", param1);
             }
-            case AUDIENCE_VICTIM: {
-                if (param2 > 0 && IsClientInGame(param2) && g_bSoundEnabled[param2]) {
-                    EmitSoundToClient(param2, soundPath);
-                    LogDebug(3, "[SM] Played sound to victim: %N", param2);
-                }
-                break;
+        } else if (audience == AUDIENCE_VICTIM) {
+            if (param2 > 0 && IsClientInGame(param2) && g_bSoundEnabled[param2]) {
+                EmitSoundToClient(param2, soundPath);
+                LogDebug(3, "[SM] Played sound to victim: %N", param2);
             }
-            case AUDIENCE_KILLER_TEAM: {
-                int killerTeam = GetClientTeam(param1);
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && GetClientTeam(client) == killerTeam && g_bSoundEnabled[client]) {
-                        EmitSoundToClient(client, soundPath);
-                    }
+        } else if (audience == AUDIENCE_KILLER_TEAM) {
+            int killerTeam = GetClientTeam(param1);
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && GetClientTeam(client) == killerTeam && g_bSoundEnabled[client]) {
+                    EmitSoundToClient(client, soundPath);
                 }
-                break;
             }
-            case AUDIENCE_VICTIM_TEAM: {
-                int victimTeam = GetClientTeam(param2);
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && GetClientTeam(client) == victimTeam && g_bSoundEnabled[client]) {
-                        EmitSoundToClient(client, soundPath);
-                    }
+        } else if (audience == AUDIENCE_VICTIM_TEAM) {
+            int victimTeam = GetClientTeam(param2);
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && GetClientTeam(client) == victimTeam && g_bSoundEnabled[client]) {
+                    EmitSoundToClient(client, soundPath);
                 }
-                break;
             }
-            case AUDIENCE_ALL_ALIVE: {
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && IsPlayerAlive(client) && g_bSoundEnabled[client]) {
-                        EmitSoundToClient(client, soundPath);
-                    }
+        } else if (audience == AUDIENCE_ALL_ALIVE) {
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && IsPlayerAlive(client) && g_bSoundEnabled[client]) {
+                    EmitSoundToClient(client, soundPath);
                 }
-                break;
             }
-            case AUDIENCE_ALL: {
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && g_bSoundEnabled[client]) {
-                        EmitSoundToClient(client, soundPath);
-                    }
+        } else if (audience == AUDIENCE_ALL) {
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && g_bSoundEnabled[client]) {
+                    EmitSoundToClient(client, soundPath);
                 }
-                break;
             }
         }
     }
@@ -757,44 +749,24 @@ void ParseAudienceTypes(const char[] audienceStr, SoundEventType eventType)
 void SetDefaultAudienceByEventType(SoundEventType eventType)
 {
     g_iAudienceCount[eventType] = 0;
-    
-    switch (eventType) {
-        case EVENT_FIRSTBLOOD: {
-            // All players hear FirstBlood
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_ALL;
-            break;
-        }
-        case EVENT_SUICIDE, EVENT_TEAMKILL, EVENT_JUSTICEKILL: {
-            // All hear the event
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_ALL;
-            break;
-        }
-        case EVENT_HEADSHOT, EVENT_KNIFEKILL, EVENT_GRENADEKILL, EVENT_SPECIALKILL,
-             EVENT_RIFLEKILL, EVENT_SMGKILL, EVENT_SHOTGUNKILL, EVENT_SNIPERKILL,
-             EVENT_PISTOLKILL, EVENT_MACHINEGUNKILL: {
-            // Only killer and victim hear these events
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_KILLER;
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_VICTIM;
-            break;
-        }
-        case EVENT_DOUBLEKILL, EVENT_TRIPLEKILL, EVENT_QUADKILL, 
-             EVENT_MULTIKILL, EVENT_SUPERKILL, EVENT_ULTRAKILL, 
-             EVENT_MEGAKILL, EVENT_MONSTERKILL, EVENT_GODLIKE: {
-            // All hear kill streaks
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_ALL;
-            break;
-        }
-        case EVENT_COMBO: {
-            // All hear combo
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_ALL;
-            break;
-        }
-        default: {
-            // Default to killer and victim
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_KILLER;
-            g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_VICTIM;
-            break;
-        }
+
+    if (eventType == EVENT_FIRSTBLOOD || 
+        eventType == EVENT_DOUBLEKILL || eventType == EVENT_TRIPLEKILL || eventType == EVENT_QUADKILL ||
+        eventType == EVENT_MULTIKILL || eventType == EVENT_SUPERKILL || eventType == EVENT_ULTRAKILL ||
+        eventType == EVENT_MEGAKILL || eventType == EVENT_MONSTERKILL || eventType == EVENT_GODLIKE ||
+        eventType == EVENT_COMBO ||
+        eventType == EVENT_SUICIDE || eventType == EVENT_TEAMKILL || eventType == EVENT_JUSTICEKILL) {
+        g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_ALL;
+    } else if (eventType == EVENT_HEADSHOT || eventType == EVENT_KNIFEKILL || eventType == EVENT_GRENADEKILL || eventType == EVENT_SPECIALKILL) {
+        g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_KILLER;
+        g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_VICTIM;
+    } else if (eventType == EVENT_RIFLEKILL || eventType == EVENT_SMGKILL || eventType == EVENT_SHOTGUNKILL ||
+               eventType == EVENT_SNIPERKILL || eventType == EVENT_PISTOLKILL || eventType == EVENT_MACHINEGUNKILL) {
+        // No default audience
+    } else {
+        // Default for any other case
+        g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_KILLER;
+        g_EventAudience[eventType][g_iAudienceCount[eventType]++] = AUDIENCE_VICTIM;
     }
 }
 
@@ -808,54 +780,42 @@ void ShowMessageToAudience(SoundEventType eventType, int param1, int param2)
     // If we're dealing with a client-specific event, only show to that client
     // Otherwise, follow the same audience pattern as the sound
     for (int i = 0; i < g_iAudienceCount[eventType]; i++) {
-        switch (g_EventAudience[eventType][i]) {
-            case AUDIENCE_KILLER: {
-                if (param1 > 0 && IsClientInGame(param1) && g_bSoundEnabled[param1]) {
-                    CPrintToChat(param1, "%t", g_sEventMessages[eventType], param1, param2);
-                    LogDebug(3, "[SM] Sent message to killer: %N", param1);
-                }
-                break;
+        AudienceType audience = g_EventAudience[eventType][i];
+        if (audience == AUDIENCE_KILLER) {
+            if (param1 > 0 && IsClientInGame(param1) && g_bSoundEnabled[param1]) {
+                CPrintToChat(param1, "%t", g_sEventMessages[eventType], param1, param2);
+                LogDebug(3, "[SM] Sent message to killer: %N", param1);
             }
-            case AUDIENCE_VICTIM: {
-                if (param2 > 0 && IsClientInGame(param2) && g_bSoundEnabled[param2]) {
-                    CPrintToChat(param2, "%t", g_sEventMessages[eventType], param1, param2);
-                    LogDebug(3, "[SM] Sent message to victim: %N", param2);
-                }
-                break;
+        } else if (audience == AUDIENCE_VICTIM) {
+            if (param2 > 0 && IsClientInGame(param2) && g_bSoundEnabled[param2]) {
+                CPrintToChat(param2, "%t", g_sEventMessages[eventType], param1, param2);
+                LogDebug(3, "[SM] Sent message to victim: %N", param2);
             }
-            case AUDIENCE_KILLER_TEAM: {
-                int killerTeam = GetClientTeam(param1);
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && GetClientTeam(client) == killerTeam && g_bSoundEnabled[client]) {
-                        CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
-                    }
+        } else if (audience == AUDIENCE_KILLER_TEAM) {
+            int killerTeam = GetClientTeam(param1);
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && GetClientTeam(client) == killerTeam && g_bSoundEnabled[client]) {
+                    CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
                 }
-                break;
             }
-            case AUDIENCE_VICTIM_TEAM: {
-                int victimTeam = GetClientTeam(param2);
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && GetClientTeam(client) == victimTeam && g_bSoundEnabled[client]) {
-                        CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
-                    }
+        } else if (audience == AUDIENCE_VICTIM_TEAM) {
+            int victimTeam = GetClientTeam(param2);
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && GetClientTeam(client) == victimTeam && g_bSoundEnabled[client]) {
+                    CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
                 }
-                break;
             }
-            case AUDIENCE_ALL_ALIVE: {
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && IsPlayerAlive(client) && g_bSoundEnabled[client]) {
-                        CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
-                    }
+        } else if (audience == AUDIENCE_ALL_ALIVE) {
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && IsPlayerAlive(client) && g_bSoundEnabled[client]) {
+                    CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
                 }
-                break;
             }
-            case AUDIENCE_ALL: {
-                for (int client = 1; client <= MaxClients; client++) {
-                    if (IsClientInGame(client) && g_bSoundEnabled[client]) {
-                        CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
-                    }
+        } else if (audience == AUDIENCE_ALL) {
+            for (int client = 1; client <= MaxClients; client++) {
+                if (IsClientInGame(client) && g_bSoundEnabled[client]) {
+                    CPrintToChat(client, "%t", g_sEventMessages[eventType], param1, param2);
                 }
-                break;
             }
         }
     }
@@ -1271,27 +1231,9 @@ public int Handler_SoundMenu(Menu menu, MenuAction action, int client, int item)
 
 // --- Final functions to complete the plugin ---
 
-// Function to update last played times for events
-void UpdateLastPlayedTime(SoundEventType eventType)
-{
-    if (eventType >= 0 && eventType < EVENT_COUNT) {
-        g_fLastPlayedTime[eventType] = GetGameTime();
-    }
-}
 
-// Function to check if an event is on cooldown
-bool IsEventOnCooldown(SoundEventType eventType)
-{
-    if (eventType >= 0 && eventType < EVENT_COUNT) {
-        float lastPlayed = g_fLastPlayedTime[eventType];
-        float cooldown = g_hCooldownInterval.FloatValue;
-        float now = GetGameTime();
-        
-        return (now - lastPlayed) < cooldown;
-    }
-    
-    return false;  // If event type is invalid, assume it's not on cooldown
-}
+
+
 
 // Function to reset all event cooldowns (for debugging purposes)
 public Action Command_ResetCooldowns(int client, int args)
