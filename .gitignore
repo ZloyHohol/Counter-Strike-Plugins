@@ -1,7 +1,7 @@
 # Ignore compiled SourceMod plugins and local build artifacts
 
-*.txt
-*.log
+
+
 cstrike/
 node_modules/
 .vscode/
@@ -10,6 +10,16 @@ node_modules/
 
 # Ignore VS Code workspace file
 Counter-Strike-Plugins.code-workspace
-*.txt
+
 
 Gemini_Changelog.md
+/sourcemod-1.13.0-git7260-windows
+/sourcemod-1.12.0-git7210-windows
+
+# ��������� �������� ��� ���������� ��������
+/��������� ��������/
+*.cmd
+*.md
+
+.gemini/
+gha-creds-*.json
