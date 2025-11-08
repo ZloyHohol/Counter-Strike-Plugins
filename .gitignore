@@ -24,3 +24,12 @@ gha-creds-*.json
 /служебные сценарии
 server_file_list_cmd.txt
 .qwen
+
+# SoundManifest specific ignored files
+SoundManifest/wav-list.txt
+SoundManifest/предложения и замечания SoundManifest.txt
+SoundManifest/предложения и замечания.txt
+SoundManifest/список оружия всего.txt
+SoundManifest/QWEN/
+SoundManifest/SoundManifest-3.2-Documentation.md
+SoundManifest/SoundManifest-Qwen-Development-Documentation.md
