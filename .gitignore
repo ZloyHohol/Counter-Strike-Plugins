@@ -1,25 +1,26 @@
 # Ignore compiled SourceMod plugins and local build artifacts
-
-
-
 cstrike/
 node_modules/
 .vscode/
 *.zip
 .gitignore
+.github
 
 # Ignore VS Code workspace file
 Counter-Strike-Plugins.code-workspace
-
 
 Gemini_Changelog.md
 /sourcemod-1.13.0-git7260-windows
 /sourcemod-1.12.0-git7210-windows
 
-# ��������� �������� ��� ���������� ��������
-/��������� ��������/
+# Игнорировать файлы для отладки плагинов
+*.bat
 *.cmd
-*.md
-
+GEMINI.md
+Development_Changelog.md
+/Журналы AppId 240 AppId 232330/
 .gemini/
 gha-creds-*.json
+/служебные сценарии
+server_file_list_cmd.txt
+.qwen
