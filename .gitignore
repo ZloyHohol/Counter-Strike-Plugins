@@ -1,5 +1,5 @@
 # Ignore compiled SourceMod plugins and local build artifacts
-cstrike/
+
 node_modules/
 .vscode/
 *.zip
