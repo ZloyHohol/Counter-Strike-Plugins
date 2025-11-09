@@ -25,7 +25,7 @@ bool g_bImmortalityAdmins[MAXPLAYERS + 1];
 public Plugin myinfo = 
 {
     name = "Rule_Health&Armor",
-    author = "Gemini",
+    author = "ZloyHohol",
     description = "Sets health and armor based on admin flags.",
     version = PLUGIN_VERSION,
     url = "https://github.com/ZloyHohol/Counter-Strike-Plugins"
@@ -37,6 +37,9 @@ public void OnPluginStart()
     g_hCvarImmortalityMode = CreateConVar("sm_rha_admin_immortality_mode", "0", "Global immortality mode for eligible admins (0: Disabled, 1: Invincible).", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     g_hCvarEnableLogging = CreateConVar("sm_rha_enable_logging", "0", "Enable/Disable logging for the RHA plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     CreateConVar("sm_rha_version", PLUGIN_VERSION, "Rule_Health&Armor plugin version.", FCVAR_NOTIFY | FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_DONTRECORD);
+
+    LoadTranslations("common.phrases.txt");
+    LoadTranslations("RHA.phrases.txt");
 
     LoadConfig();
 
@@ -201,41 +204,7 @@ void LoadConfig()
     BuildPath(Path_SM, human_path, sizeof(human_path), "configs/RHA_humans.cfg");
 
     g_kvHumans = new KeyValues("Groups");
-    if (!FileExists(human_path))
-    {
-        LogMessage("[RHA] RHA_humans.cfg not found. Creating a default version.");
-        // Create default RHA_humans.cfg
-        KeyValues kv = new KeyValues("Groups");
-        kv.JumpToKey("Guest", true);
-        kv.SetString("Flags", "");
-        kv.JumpToKey("Team_T", true);
-        kv.SetNum("health", 100);
-        kv.SetNum("armor", 0);
-        kv.SetNum("Helmet", 0);
-        kv.GoBack();
-        kv.JumpToKey("Team_CT", true);
-        kv.SetNum("health", 100);
-        kv.SetNum("armor", 0);
-        kv.SetNum("Helmet", 0);
-        kv.GoBack();
-        kv.GoBack();
-        kv.JumpToKey("Admin_z", true);
-        kv.SetString("Flags", "z");
-        kv.SetNum("CanUseImmortality", 1);
-        kv.JumpToKey("Team_T", true);
-        kv.SetNum("health", 120);
-        kv.SetNum("armor", 100);
-        kv.SetNum("Helmet", 1);
-        kv.GoBack();
-        kv.JumpToKey("Team_CT", true);
-        kv.SetNum("health", 120);
-        kv.SetNum("armor", 100);
-        kv.SetNum("Helmet", 1);
-        kv.GoBack();
-        kv.GoBack();
-        kv.ExportToFile(human_path);
-        delete kv;
-    }
+
     if (!g_kvHumans.ImportFromFile(human_path))
     {
         LogError("[RHA] Failed to load or parse config file: %s. Check for syntax errors.", human_path);
@@ -246,24 +215,7 @@ void LoadConfig()
     BuildPath(Path_SM, bot_path, sizeof(bot_path), "configs/RHA_bots.cfg");
 
     g_kvBots = new KeyValues("Bots");
-    if (!FileExists(bot_path))
-    {
-        LogMessage("[RHA] RHA_bots.cfg not found. Creating a default version.");
-        // Create default RHA_bots.cfg
-        KeyValues kv = new KeyValues("Bots");
-        kv.JumpToKey("Team_T", true);
-        kv.SetNum("health", 90);
-        kv.SetNum("armor", 50);
-        kv.SetNum("Helmet", 1);
-        kv.GoBack();
-        kv.JumpToKey("Team_CT", true);
-        kv.SetNum("health", 90);
-        kv.SetNum("armor", 50);
-        kv.SetNum("Helmet", 1);
-        kv.GoBack();
-        kv.ExportToFile(bot_path);
-        delete kv;
-    }
+
     if (!g_kvBots.ImportFromFile(bot_path))
     {
         LogError("[RHA] Failed to load or parse config file: %s. Check for syntax errors.", bot_path);
@@ -284,38 +236,51 @@ KeyValues GetClientGroupSettings(int client, bool isBot)
     g_kvHumans.Rewind();
     
     KeyValues kvBestGroup = null;
-    int bestMatchValue = -1; // Use flag value for matching, not string length
+    int bestImmunity = -1;
 
-    if (g_kvHumans.GotoFirstSubKey(false))
+    AdminId adminId = GetUserAdmin(client);
+
+    if (adminId != INVALID_ADMIN_ID)
     {
-        do
+        char groupName[64];
+        int groupCount = Admin_GetAdminGroupCount(adminId);
+
+        for (int i = 0; i < groupCount; i++)
         {
-            char sGroupName[64];
-            g_kvHumans.GetSectionName(sGroupName, sizeof(sGroupName));
-            char sFlags[64];
-            g_kvHumans.GetString("Flags", sFlags, sizeof(sFlags), "");
-
-            int flagsMask = ReadFlagString(sFlags);
-            int playerFlags = GetUserFlagBits(client);
-
-            // Check if the player has at least one of the required flags for this group, or if the group is public
-            if (flagsMask == 0 || (playerFlags & flagsMask) != 0)
+            Admin_GetAdminGroup(adminId, i, groupName, sizeof(groupName));
+            
+            if (g_kvHumans.JumpToKey(groupName))
             {
-                // If this group's flag value is higher than the best match so far, it's a better match
-                if (flagsMask > bestMatchValue)
+                GroupId groupId = Admin_FindGroup(groupName);
+                if (groupId != INVALID_GROUP_ID)
                 {
-                    bestMatchValue = flagsMask;
-                    if (kvBestGroup != null) 
+                    int immunity = Admin_GetGroupImmunity(groupId);
+                    if (immunity > bestImmunity)
                     {
-                        delete kvBestGroup;
+                        bestImmunity = immunity;
+                        if (kvBestGroup != null) 
+                        {
+                            delete kvBestGroup;
+                        }
+                        kvBestGroup = new KeyValues(groupName);
+                        KvCopySubkeys(g_kvHumans, kvBestGroup);
                     }
-                    kvBestGroup = new KeyValues(sGroupName);
-                    KvCopySubkeys(g_kvHumans, kvBestGroup);
                 }
+                g_kvHumans.Rewind(); // Reset for the next potential group check
             }
-        } while (g_kvHumans.GotoNextKey(false));
+        }
     }
 
+    // If no specific group was found, or user is not an admin, try to apply Default settings
+    if (kvBestGroup == null)
+    {
+        if (g_kvHumans.JumpToKey("Default"))
+        {
+            kvBestGroup = new KeyValues("Default");
+            KvCopySubkeys(g_kvHumans, kvBestGroup);
+        }
+    }
+    
     return kvBestGroup;
 }
 
@@ -345,24 +310,28 @@ void ApplyHealthArmorToClient(int client, bool silent)
         int armor = kvGroup.GetNum("armor", 0);
         int helmet = kvGroup.GetNum("Helmet", 0);
 
-        SetEntProp(client, Prop_Data, "m_iHealth", health);
+        // Set Armor and Helmet first
         SetEntProp(client, Prop_Send, "m_ArmorValue", armor);
-
         if (armor > 0 && helmet == 1)
         {
             SetEntProp(client, Prop_Send, "m_bHasHelmet", 1);
+        } else {
+            SetEntProp(client, Prop_Send, "m_bHasHelmet", 0); // Ensure helmet is removed if not given
         }
+
+        // Then set Health using the dedicated function
+        SetEntityHealth(client, health);
 
         if (g_hCvarEnableLogging.BoolValue)
         {
             char clientName[MAX_NAME_LENGTH];
             GetClientName(client, clientName, sizeof(clientName));
-            RHA_LogAction(-1, client, "Applied settings to \"%s\" (group: %s, health: %d, armor: %d)", clientName, groupName, health, armor);
+            RHA_LogAction(-1, client, "Applied settings to \"%s\" (group: %s, health: %d, armor: %d, helmet: %d)", clientName, groupName, health, armor, helmet);
         }
 
         if (!silent)
         {
-            CPrintToChat(client, " {blueviolet}[RHA]{default} You are in group {olive}\"%s\"{default}. Health: {darkgreen}%d{default}, Armor: {brown}%d{default}", groupName, health, armor);
+            CPrintToChat(client, "%t", "RHA_GroupMessage", groupName, health, armor, (helmet == 1) ? "Yes" : "No");
         }
     }
 
