@@ -8,6 +8,7 @@
 #include <keyvalues>
 #include <multicolors>
 #include <adminmenu>
+#include <admin.inc>
 
 #define PLUGIN_VERSION "1.0"
 
@@ -243,18 +244,18 @@ KeyValues GetClientGroupSettings(int client, bool isBot)
     if (adminId != INVALID_ADMIN_ID)
     {
         char groupName[64];
-        int groupCount = Admin_GetAdminGroupCount(adminId);
+        int groupCount = GetAdminGroupCount(adminId);
 
         for (int i = 0; i < groupCount; i++)
         {
-            Admin_GetAdminGroup(adminId, i, groupName, sizeof(groupName));
+            adminId.GetGroup(i, groupName, sizeof(groupName));
             
             if (g_kvHumans.JumpToKey(groupName))
             {
-                GroupId groupId = Admin_FindGroup(groupName);
+                GroupId groupId = FindAdmGroup(groupName);
                 if (groupId != INVALID_GROUP_ID)
                 {
-                    int immunity = Admin_GetGroupImmunity(groupId);
+                    int immunity = GetAdmGroupImmunityLevel(groupId);
                     if (immunity > bestImmunity)
                     {
                         bestImmunity = immunity;
